@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound, RefreshCcw, Loader2, AlertCircle } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView.tsx';
 import RulesView from './components/RulesView.tsx';
 import SettlementView from './components/SettlementView.tsx';
@@ -9,6 +10,24 @@ import AIChatView from './components/AIChatView.tsx';
 import { Expense, Souvenir } from './types.ts';
 import { SCHEDULE_DATA } from './constants.tsx';
 
+// Robust environment variable accessor
+const getEnv = (key: string): string => {
+  try {
+    // @ts-ignore
+    const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : (typeof process !== 'undefined' ? process.env : {});
+    return env[key] || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+// Supabase Initialization with safety check
+const supabaseUrl = getEnv('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey) 
+  : null;
+
 type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'ai';
 
 const App: React.FC = () => {
@@ -16,54 +35,120 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('schedule');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [tempCode, setTempCode] = useState('');
-
-  // 가족 코드별 데이터 키 생성 함수
-  const getStorageKey = (key: string) => familyId ? `${key}_${familyId}` : key;
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
 
-  // 초기 데이터 로드 (가족 코드가 결정된 후 실행)
-  useEffect(() => {
-    if (!familyId) return;
-    
-    try {
-      const savedExpenses = localStorage.getItem(getStorageKey('trip_expenses'));
-      const savedSouvenirs = localStorage.getItem(getStorageKey('trip_souvenirs'));
-      
-      setExpenses(savedExpenses ? JSON.parse(savedExpenses) : []);
-      setSouvenirs(savedSouvenirs ? JSON.parse(savedSouvenirs) : []);
-    } catch (e) {
-      console.error("Failed to load family data", e);
+  const generateFamilyId = () => {
+    return Math.random().toString(36).substring(2, 10).toUpperCase();
+  };
+
+  const fetchFamilyData = useCallback(async (id: string) => {
+    if (!supabase) {
+      console.warn("Supabase client not initialized. Check your environment variables.");
+      return;
     }
-  }, [familyId]);
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('family_state')
+        .select('*')
+        .eq('family_id', id)
+        .single();
 
-  // 데이터 저장 (가족 코드 기반)
-  useEffect(() => {
-    if (!familyId) return;
-    localStorage.setItem(getStorageKey('trip_expenses'), JSON.stringify(expenses));
-  }, [expenses, familyId]);
+      if (error && error.code !== 'PGRST116') throw error;
+
+      if (data) {
+        setExpenses(data.expenses || []);
+        setSouvenirs(data.souvenirs || []);
+      } else {
+        const localExpenses = localStorage.getItem(`trip_expenses_${id}`) || localStorage.getItem('trip_expenses');
+        const localSouvenirs = localStorage.getItem(`trip_souvenirs_${id}`) || localStorage.getItem('trip_souvenirs');
+        
+        const initialExpenses = localExpenses ? JSON.parse(localExpenses) : [];
+        const initialSouvenirs = localSouvenirs ? JSON.parse(localSouvenirs) : [];
+
+        setExpenses(initialExpenses);
+        setSouvenirs(initialSouvenirs);
+
+        await supabase.from('family_state').upsert({
+          family_id: id,
+          expenses: initialExpenses,
+          souvenirs: initialSouvenirs
+        });
+      }
+    } catch (e) {
+      console.error("데이터 로드 실패:", e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const saveToSupabase = useCallback(async (id: string, newExpenses: Expense[], newSouvenirs: Souvenir[]) => {
+    if (!id || !supabase) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.from('family_state').upsert({
+        family_id: id,
+        expenses: newExpenses,
+        souvenirs: newSouvenirs
+      });
+      if (error) throw error;
+    } catch (e) {
+      console.error("데이터 저장 실패:", e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!familyId) return;
-    localStorage.setItem(getStorageKey('trip_souvenirs'), JSON.stringify(souvenirs));
-  }, [souvenirs, familyId]);
+    if (familyId) {
+      fetchFamilyData(familyId);
+    }
+  }, [familyId, fetchFamilyData]);
+
+  useEffect(() => {
+    if (!familyId || isLoading || isResetting) return;
+    const timeout = setTimeout(() => {
+      saveToSupabase(familyId, expenses, souvenirs);
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [expenses, souvenirs, familyId, saveToSupabase, isLoading, isResetting]);
 
   const handleSetFamilyId = (code: string) => {
-    const cleanCode = code.trim().toLowerCase();
-    if (cleanCode) {
-      localStorage.setItem('family_id', cleanCode);
-      setFamilyId(cleanCode);
-      setTempCode('');
-    }
+    let cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) cleanCode = generateFamilyId();
+    localStorage.setItem('family_id', cleanCode);
+    setFamilyId(cleanCode);
+    setTempCode('');
+    setActiveTab('schedule');
   };
 
   const handleResetFamilyId = () => {
-    if (window.confirm('가족 코드를 변경하시겠습니까? 현재 코드의 데이터는 유지되지만, 새로운 코드를 입력해야 합니다.')) {
+    setIsResetting(true);
+    setIsMenuOpen(false);
+    setShowResetConfirm(false);
+    
+    // UI 업데이트를 위한 짧은 딜레이
+    setTimeout(() => {
+      // 1. localStorage 명시적 제거
       localStorage.removeItem('family_id');
+      localStorage.removeItem('trip_expenses');
+      localStorage.removeItem('trip_souvenirs');
+      
+      // 2. 모든 React State 초기화
       setFamilyId(null);
-      setIsMenuOpen(false);
-    }
+      setExpenses([]);
+      setSouvenirs([]);
+      setTempCode('');
+      setActiveTab('schedule');
+      
+      setIsResetting(false);
+    }, 600);
   };
 
   const tabs = [
@@ -75,6 +160,15 @@ const App: React.FC = () => {
   ];
 
   const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center py-40 gap-4 animate-in fade-in duration-500">
+          <Loader2 size={40} className="text-[#1675F2] animate-spin" />
+          <p className="text-sm font-black text-[#566873]/40 uppercase tracking-widest">데이터 동기화 중...</p>
+        </div>
+      );
+    }
+
     switch (activeTab) {
       case 'schedule': return <ScheduleView />;
       case 'rules': return <RulesView />;
@@ -85,10 +179,17 @@ const App: React.FC = () => {
     }
   };
 
+  if (isResetting) {
+    return (
+      <div className="fixed inset-0 bg-[#1675F2] flex flex-col items-center justify-center z-[2000] text-white gap-4">
+        <Loader2 size={48} className="animate-spin text-[#F2E96D]" />
+        <p className="text-lg font-black tracking-tighter uppercase">연결 해제 및 초기화 중...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FCFCFC] flex flex-col max-w-[500px] mx-auto relative font-sans text-[#566873]">
-      
-      {/* Family ID Entry Modal */}
       {!familyId && (
         <div className="fixed inset-0 z-[1000] bg-[#1675F2] flex items-center justify-center p-6 animate-in fade-in duration-500">
           <div className="bg-white w-full max-w-[360px] rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-500">
@@ -96,39 +197,36 @@ const App: React.FC = () => {
               <div className="w-16 h-16 bg-[#F2E96D] text-[#1675F2] rounded-3xl flex items-center justify-center mx-auto mb-2 shadow-lg shadow-[#F2E96D]/20">
                 <KeyRound size={32} strokeWidth={2.5} />
               </div>
-              <h2 className="text-2xl font-black text-[#1675F2] tracking-tighter">가족 코드 입력</h2>
-              <p className="text-sm font-bold text-[#566873]/60 leading-relaxed">우리 가족만의 코드를 입력하면<br/>일정과 정산을 함께 관리할 수 있어요.</p>
+              <h2 className="text-2xl font-black text-[#1675F2] tracking-tighter">가족 코드 시작하기</h2>
+              <p className="text-sm font-bold text-[#566873]/60 leading-relaxed">우리 가족만의 코드를 입력하세요.<br/>코드가 없다면 자동으로 생성됩니다.</p>
             </div>
-            
             <div className="space-y-4">
               <input 
                 type="text" 
                 value={tempCode}
                 onChange={(e) => setTempCode(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSetFamilyId(tempCode)}
-                placeholder="예: osaka2026"
-                className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-lg font-black text-[#1675F2] placeholder:text-[#566873]/20 focus:ring-4 focus:ring-[#F2E96D] transition-all"
+                placeholder="예: OSAKA2026"
+                className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-lg font-black text-[#1675F2] placeholder:text-[#566873]/20 focus:ring-4 focus:ring-[#F2E96D] transition-all uppercase"
               />
               <button 
                 onClick={() => handleSetFamilyId(tempCode)}
-                disabled={!tempCode.trim()}
-                className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black text-md shadow-xl shadow-[#1675F2]/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-30"
+                className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black text-md shadow-xl shadow-[#1675F2]/20 hover:brightness-110 active:scale-95 transition-all"
               >
-                여행 시작하기
+                {tempCode.trim() ? '이 코드로 시작' : '새 코드 생성하고 시작'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header - Fixed at Top */}
       <header className="bg-white fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] z-[100] px-6 pt-9 pb-3 border-b border-[#566873]/5 shadow-sm h-[118px]">
         <div className="flex justify-between items-center h-full">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full uppercase tracking-tighter">가족 여행</span>
+              <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full uppercase tracking-tighter">실시간 공유 중</span>
               <div className="flex items-center gap-1 px-2 py-0.5 bg-[#F1F2F0] rounded-full">
-                <CheckCircle2 size={8} className="text-[#1675F2]" />
+                {isSaving ? <RefreshCcw size={8} className="text-[#1675F2] animate-spin" /> : <CheckCircle2 size={8} className="text-[#1675F2]" />}
                 <span className="text-[8px] font-bold text-[#566873]/60 uppercase">코드: {familyId}</span>
               </div>
             </div>
@@ -136,11 +234,14 @@ const App: React.FC = () => {
               {SCHEDULE_DATA.title}
             </h1>
             <p className="text-[11px] font-bold text-[#566873]/40 tracking-tight mt-1">
-              2026.02.15 - 2026.02.19 | 열무&배추네
+              {familyId ? '가족 클라우드 연결됨' : '연결 중...'} | 열무&배추네
             </p>
           </div>
           <button 
-            onClick={() => setIsMenuOpen(true)}
+            onClick={() => {
+              setIsMenuOpen(true);
+              setShowResetConfirm(false); // 메뉴 열 때마다 리셋 컨펌 초기화
+            }}
             className="w-10 h-10 bg-white border border-[#566873]/10 text-[#566873] rounded-full flex items-center justify-center transition-all active:scale-90 shadow-sm"
           >
             <Menu size={18} />
@@ -148,12 +249,10 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 px-4 pt-[118px] pb-32">
         {familyId && renderContent()}
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[468px] bg-[#1675F2] rounded-full px-2 py-2 shadow-[0_20px_50px_rgba(22,117,242,0.3)] z-[150] flex justify-between items-center border border-white/10">
         {tabs.map((tab) => (
           <button
@@ -173,7 +272,6 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      {/* Side Menu Overlay */}
       {isMenuOpen && (
         <div className="fixed inset-0 z-[200] bg-[#1675F2]/10 backdrop-blur-md animate-in fade-in duration-300">
           <div className="absolute right-0 top-0 h-full w-[85%] bg-white shadow-2xl animate-in slide-in-from-right duration-500 flex flex-col">
@@ -205,7 +303,6 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            {/* Menu Footer: Family ID Management */}
             <div className="p-10 border-t border-[#F1F2F0] bg-[#F8F9FD]">
               <div className="bg-white p-6 rounded-[2rem] border border-[#1675F2]/5 shadow-sm space-y-4">
                 <div className="flex items-center gap-3">
@@ -217,13 +314,38 @@ const App: React.FC = () => {
                     <p className="text-sm font-black text-[#1675F2] uppercase">{familyId}</p>
                   </div>
                 </div>
-                <button 
-                  onClick={handleResetFamilyId}
-                  className="w-full flex items-center justify-center gap-2 bg-[#566873]/5 hover:bg-[#566873]/10 text-[#566873] py-4 rounded-2xl text-xs font-black transition-all"
-                >
-                  <LogOut size={14} />
-                  코드 변경 및 초기화
-                </button>
+
+                {/* React 상태 기반 커스텀 리셋 확인 UI */}
+                {!showResetConfirm ? (
+                  <button 
+                    onClick={() => setShowResetConfirm(true)}
+                    className="w-full flex items-center justify-center gap-2 bg-[#566873]/5 hover:bg-[#566873]/10 text-[#566873] py-4 rounded-2xl text-xs font-black transition-all"
+                  >
+                    <LogOut size={14} />
+                    코드 변경 및 초기화
+                  </button>
+                ) : (
+                  <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-300">
+                    <div className="flex items-center gap-2 px-4 py-3 bg-red-50 text-red-500 rounded-2xl border border-red-100 mb-1">
+                      <AlertCircle size={14} />
+                      <p className="text-[10px] font-bold">정말 초기화할까요? 데이터는 안전합니다.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleResetFamilyId}
+                        className="flex-1 bg-red-500 text-white py-4 rounded-2xl text-xs font-black shadow-lg shadow-red-500/20 active:scale-95 transition-all"
+                      >
+                        네, 초기화
+                      </button>
+                      <button 
+                        onClick={() => setShowResetConfirm(false)}
+                        className="flex-1 bg-[#F1F2F0] text-[#566873] py-4 rounded-2xl text-xs font-black active:scale-95 transition-all"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
