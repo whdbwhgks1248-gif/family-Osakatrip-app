@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, Globe, LogOut, WifiOff } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
-import ScheduleView from './components/ScheduleView';
-import RulesView from './components/RulesView';
-import SettlementView from './components/SettlementView';
-import SouvenirView from './components/SouvenirView';
-import AIChatView from './components/AIChatView';
-import { Expense, Souvenir } from './types';
-import { SCHEDULE_DATA } from './constants';
+import ScheduleView from './components/ScheduleView.tsx';
+import RulesView from './components/RulesView.tsx';
+import SettlementView from './components/SettlementView.tsx';
+import SouvenirView from './components/SouvenirView.tsx';
+import AIChatView from './components/AIChatView.tsx';
+import { Expense, Souvenir } from './types.ts';
+import { SCHEDULE_DATA } from './constants.tsx';
 
 const getSupabaseConfig = () => {
   const env = (import.meta as any).env || {};
@@ -74,7 +74,13 @@ const App: React.FC = () => {
       } else {
         await supabase.from('family_state').upsert({ family_id: cleanId, expenses: [], souvenirs: [] });
       }
-    } catch (e) { console.error("Fetch Error:", e); } finally { setIsLoading(false); }
+    } catch (e) { 
+      console.error("Fetch Error:", e); 
+      setExpenses([]);
+      setSouvenirs([]);
+    } finally { 
+      setIsLoading(false); 
+    }
   }, []);
 
   const saveToSupabase = useCallback(async (id: string, newExpenses: Expense[], newSouvenirs: Souvenir[]) => {
