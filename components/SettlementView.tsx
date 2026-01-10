@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Expense, MemberId, FAMILY_MEMBERS } from '../types';
-import { Plus, Trash2, History, TrendingUp, X, ArrowRightLeft, CreditCard, UserCheck } from 'lucide-react';
+import { Plus, Trash2, TrendingUp, X, ArrowRightLeft, CreditCard, UserCheck, Check } from 'lucide-react';
 
 interface SettlementViewProps {
   expenses: Expense[];
@@ -18,12 +18,12 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
   const safeExpenses = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
 
-  // 정산 계산 통합 로직
+  // 정산 계산 통합 로직 (정산 완료 멤버 제외 처리)
   const settlementData = useMemo(() => {
     const summary: Record<string, { 
-      paidTotal: number,      // 내가 직접 결제한 총액
-      consumptionTotal: number, // 내가 참여한 지출의 내 몫 합계 (내가 쓴 돈)
-      netBalance: number      // 최종 정산 잔액 (받을 돈 + / 줄 돈 -)
+      paidTotal: number,      
+      consumptionTotal: number, 
+      netBalance: number      
     }> = {};
 
     FAMILY_MEMBERS.forEach(m => {
@@ -37,28 +37,30 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
       const share = amount / validParticipants.length;
       
-      // 1. 내가 결제한 총액 기록
+      // 결제액 및 소비액 기록 (정산 여부와 상관없이 실제 쓴 돈)
       if (summary[exp.payerId]) {
         summary[exp.payerId].paidTotal += amount;
       }
 
       validParticipants.forEach(pId => {
         if (!summary[pId]) return;
-        // 2. 내 몫(소비액) 기록
         summary[pId].consumptionTotal += share;
         
-        // 3. 잔액 계산
-        // 결제자는 참여자들의 몫만큼 '받을 권리'가 생기고
-        // 참여자(결제자 제외)는 자기 몫만큼 '줄 의무'가 생김
+        // 잔액 계산: '아직 정산 안 된 사람들'의 몫만 계산에 포함
         if (pId === exp.payerId) {
-          summary[pId].netBalance += (amount - share);
+          // 결제자는 (자신을 제외한 참여자 중 정산 안 한 사람들)의 몫만큼 받을 돈이 있음
+          const unsettledOthers = validParticipants.filter(p => p !== exp.payerId && !(exp.settledMemberIds || []).includes(p));
+          summary[pId].netBalance += (unsettledOthers.length * share);
         } else {
-          summary[pId].netBalance -= share;
+          // 참여자는 정산을 안 했을 때만 보낼 돈이 마이너스로 기록됨
+          if (!(exp.settledMemberIds || []).includes(pId)) {
+            summary[pId].netBalance -= share;
+          }
         }
       });
     });
 
-    // 4. 송금 경로 계산 (누가 누구에게)
+    // 송금 경로 계산
     const transfers: { from: MemberId, to: MemberId, amount: number }[] = [];
     const balances = FAMILY_MEMBERS.map(m => ({ id: m, bal: summary[m].netBalance }));
     
@@ -68,9 +70,13 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
     let dIdx = 0;
     let cIdx = 0;
 
-    while (dIdx < debtors.length && cIdx < creditors.length) {
-      const d = debtors[dIdx];
-      const c = creditors[cIdx];
+    // 복제본으로 계산 (원본 데이터 보존)
+    let tempDebtors = debtors.map(d => ({...d}));
+    let tempCreditors = creditors.map(c => ({...c}));
+
+    while (dIdx < tempDebtors.length && cIdx < tempCreditors.length) {
+      const d = tempDebtors[dIdx];
+      const c = tempCreditors[cIdx];
       const amount = Math.min(Math.abs(d.bal), c.bal);
 
       if (amount > 1) {
@@ -97,7 +103,7 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
       amount: amountNum,
       payerId: newPayer,
       participantIds: [...newParticipants],
-      settledMemberIds: [],
+      settledMemberIds: [], // 초기엔 아무도 안 보냄
       date: new Date(newDate).getTime() || Date.now()
     };
     
@@ -109,6 +115,17 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
   const deleteExpense = (id: string) => {
     setExpenses(prev => Array.isArray(prev) ? prev.filter(e => e.id !== id) : []);
+  };
+
+  const toggleSettledMember = (expenseId: string, memberId: MemberId) => {
+    setExpenses(prev => prev.map(exp => {
+      if (exp.id !== expenseId) return exp;
+      const settled = exp.settledMemberIds || [];
+      const newSettled = settled.includes(memberId)
+        ? settled.filter(m => m !== memberId)
+        : [...settled, memberId];
+      return { ...exp, settledMemberIds: newSettled };
+    }));
   };
 
   const toggleParticipant = (m: MemberId) => {
@@ -146,11 +163,11 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                   </div>
                   <div className="text-right">
                     {data.netBalance > 0.1 ? (
-                      <span className="text-[11px] font-black text-[#1675F2] bg-white px-3 py-1.5 rounded-full border border-[#1675F2]/20">받을 돈 ₩{Math.round(data.netBalance).toLocaleString()}</span>
+                      <span className="text-[11px] font-black text-[#1675F2] bg-white px-3 py-1.5 rounded-full border border-[#1675F2]/20 shadow-sm">받을 돈 ₩{Math.round(data.netBalance).toLocaleString()}</span>
                     ) : data.netBalance < -0.1 ? (
                       <span className="text-[11px] font-black text-[#E11D48] bg-rose-50 px-3 py-1.5 rounded-full">보낼 돈 ₩{Math.round(Math.abs(data.netBalance)).toLocaleString()}</span>
                     ) : (
-                      <span className="text-[10px] font-black text-slate-300">정산 완료</span>
+                      <span className="text-[10px] font-black text-slate-300 bg-white/50 px-3 py-1.5 rounded-full border border-dashed border-slate-200">정산 완료</span>
                     )}
                   </div>
                 </div>
@@ -186,6 +203,7 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                 </div>
               ))}
             </div>
+            <p className="mt-6 text-[9px] text-white/40 text-center font-bold">정산 체크를 완료하면 이 가이드가 실시간으로 업데이트됩니다.</p>
           </div>
         </div>
       )}
@@ -201,15 +219,43 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
         ) : (
           <div className="space-y-4">
             {safeExpenses.map((exp) => (
-              <div key={exp.id} className="p-5 bg-white border border-[#566873]/5 rounded-[2rem] shadow-sm">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-black text-[#566873]">{exp.title}</h3>
-                  <button onClick={() => deleteExpense(exp.id)} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+              <div key={exp.id} className="p-6 bg-white border border-[#566873]/5 rounded-[2.5rem] shadow-sm">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-black text-[#566873]">{exp.title}</h3>
+                    <p className="text-[10px] font-bold text-slate-400">결제: {exp.payerId}</p>
+                  </div>
+                  <button onClick={() => deleteExpense(exp.id)} className="text-slate-200 hover:text-red-500 transition-colors p-1"><Trash2 size={16} /></button>
                 </div>
-                <div className="flex justify-between items-end">
-                  <div className="space-y-1">
-                    <p className="text-xl font-black text-[#1675F2]">₩{Number(exp.amount).toLocaleString()}</p>
-                    <p className="text-[10px] font-bold text-slate-400">결제: {exp.payerId} / 참여: {exp.participantIds.join(', ')}</p>
+                
+                <p className="text-2xl font-black text-[#1675F2] mb-6">₩{Number(exp.amount).toLocaleString()}</p>
+                
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest ml-1">참여자 정산 현황</p>
+                  <div className="flex flex-wrap gap-2">
+                    {exp.participantIds.map(pId => {
+                      const isPayer = pId === exp.payerId;
+                      const isSettled = (exp.settledMemberIds || []).includes(pId);
+                      
+                      if (isPayer) return null; // 결제자는 정산 대상에서 제외 (본인이 본인에게 돈 보낼 필요 없음)
+
+                      return (
+                        <button
+                          key={pId}
+                          onClick={() => toggleSettledMember(exp.id, pId)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black transition-all border ${
+                            isSettled 
+                              ? 'bg-[#1675F2]/5 border-[#1675F2]/20 text-[#1675F2]' 
+                              : 'bg-slate-50 border-transparent text-slate-400'
+                          }`}
+                        >
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isSettled ? 'bg-[#1675F2] text-white' : 'bg-slate-200 text-white'}`}>
+                            <Check size={8} strokeWidth={4} />
+                          </div>
+                          {pId}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
