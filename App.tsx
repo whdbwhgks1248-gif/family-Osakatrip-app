@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, Globe, LogOut, WifiOff } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
-import ScheduleView from './components/ScheduleView.tsx';
-import RulesView from './components/RulesView.tsx';
-import SettlementView from './components/SettlementView.tsx';
-import SouvenirView from './components/SouvenirView.tsx';
-import AIChatView from './components/AIChatView.tsx';
-import { Expense, Souvenir } from './types.ts';
-import { SCHEDULE_DATA } from './constants.tsx';
+import ScheduleView from './components/ScheduleView';
+import RulesView from './components/RulesView';
+import SettlementView from './components/SettlementView';
+import SouvenirView from './components/SouvenirView';
+import AIChatView from './components/AIChatView';
+import { Expense, Souvenir } from './types';
+import { SCHEDULE_DATA } from './constants';
 
 const getSupabaseConfig = () => {
   const env = (import.meta as any).env || {};
@@ -49,12 +49,9 @@ const App: React.FC = () => {
           if (newData) {
             const safeExpenses = Array.isArray(newData.expenses) ? newData.expenses : [];
             const safeSouvenirs = Array.isArray(newData.souvenirs) ? newData.souvenirs : [];
-            const dataString = JSON.stringify({ e: safeExpenses, s: safeSouvenirs });
-            if (dataString !== lastSavedRef.current) {
-              setExpenses(safeExpenses);
-              setSouvenirs(safeSouvenirs);
-              lastSavedRef.current = dataString;
-            }
+            setExpenses(safeExpenses);
+            setSouvenirs(safeSouvenirs);
+            lastSavedRef.current = JSON.stringify({ e: safeExpenses, s: safeSouvenirs });
           }
         }
       ).subscribe();
