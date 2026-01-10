@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound, RefreshCcw, Loader2, AlertCircle } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound, RefreshCcw, Loader2, AlertCircle, WifiOff } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView.tsx';
 import RulesView from './components/RulesView.tsx';
@@ -10,20 +9,17 @@ import AIChatView from './components/AIChatView.tsx';
 import { Expense, Souvenir } from './types.ts';
 import { SCHEDULE_DATA } from './constants.tsx';
 
-// Robust environment variable accessor
-const getEnv = (key: string): string => {
-  try {
-    // @ts-ignore
-    const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : (typeof process !== 'undefined' ? process.env : {});
-    return env[key] || '';
-  } catch (e) {
-    return '';
-  }
-};
+// 1. Supabase Initialization using Environment Variables
+/* Fix: Using process.env instead of import.meta.env to resolve TypeScript 'Property env does not exist on type ImportMeta' error */
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+/* Fix: Using process.env instead of import.meta.env to resolve TypeScript 'Property env does not exist on type ImportMeta' error */
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-// Supabase Initialization with safety check
-const supabaseUrl = getEnv('VITE_SUPABASE_URL');
-const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
+// Log initialization status for debugging (Safe for production)
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn("Supabase configuration missing. Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in Vercel.");
+}
+
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
@@ -31,7 +27,10 @@ const supabase = (supabaseUrl && supabaseAnonKey)
 type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'ai';
 
 const App: React.FC = () => {
-  const [familyId, setFamilyId] = useState<string | null>(() => localStorage.getItem('family_id'));
+  const [familyId, setFamilyId] = useState<string | null>(() => {
+    const saved = localStorage.getItem('family_id');
+    return saved ? saved.toUpperCase() : null;
+  });
   const [activeTab, setActiveTab] = useState<TabType>('schedule');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [tempCode, setTempCode] = useState('');
@@ -47,27 +46,29 @@ const App: React.FC = () => {
     return Math.random().toString(36).substring(2, 10).toUpperCase();
   };
 
+  // 2. Resilient Data Fetching with maybeSingle()
   const fetchFamilyData = useCallback(async (id: string) => {
-    if (!supabase) {
-      console.warn("Supabase client not initialized. Check your environment variables.");
-      return;
-    }
+    if (!supabase) return;
+    
     setIsLoading(true);
+    const cleanId = id.trim().toUpperCase();
+    
     try {
       const { data, error } = await supabase
         .from('family_state')
         .select('*')
-        .eq('family_id', id)
-        .single();
+        .eq('family_id', cleanId)
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
 
       if (data) {
         setExpenses(data.expenses || []);
         setSouvenirs(data.souvenirs || []);
       } else {
-        const localExpenses = localStorage.getItem(`trip_expenses_${id}`) || localStorage.getItem('trip_expenses');
-        const localSouvenirs = localStorage.getItem(`trip_souvenirs_${id}`) || localStorage.getItem('trip_souvenirs');
+        // Initial setup for new code
+        const localExpenses = localStorage.getItem(`trip_expenses_${cleanId}`) || localStorage.getItem('trip_expenses');
+        const localSouvenirs = localStorage.getItem(`trip_souvenirs_${cleanId}`) || localStorage.getItem('trip_souvenirs');
         
         const initialExpenses = localExpenses ? JSON.parse(localExpenses) : [];
         const initialSouvenirs = localSouvenirs ? JSON.parse(localSouvenirs) : [];
@@ -75,14 +76,15 @@ const App: React.FC = () => {
         setExpenses(initialExpenses);
         setSouvenirs(initialSouvenirs);
 
+        // Create the row immediately
         await supabase.from('family_state').upsert({
-          family_id: id,
+          family_id: cleanId,
           expenses: initialExpenses,
           souvenirs: initialSouvenirs
         });
       }
     } catch (e) {
-      console.error("데이터 로드 실패:", e);
+      console.error("데이터 로드 중 오류 발생:", e);
     } finally {
       setIsLoading(false);
     }
@@ -91,9 +93,10 @@ const App: React.FC = () => {
   const saveToSupabase = useCallback(async (id: string, newExpenses: Expense[], newSouvenirs: Souvenir[]) => {
     if (!id || !supabase) return;
     setIsSaving(true);
+    const cleanId = id.trim().toUpperCase();
     try {
       const { error } = await supabase.from('family_state').upsert({
-        family_id: id,
+        family_id: cleanId,
         expenses: newExpenses,
         souvenirs: newSouvenirs
       });
@@ -115,7 +118,7 @@ const App: React.FC = () => {
     if (!familyId || isLoading || isResetting) return;
     const timeout = setTimeout(() => {
       saveToSupabase(familyId, expenses, souvenirs);
-    }, 1000);
+    }, 1200);
     return () => clearTimeout(timeout);
   }, [expenses, souvenirs, familyId, saveToSupabase, isLoading, isResetting]);
 
@@ -133,20 +136,16 @@ const App: React.FC = () => {
     setIsMenuOpen(false);
     setShowResetConfirm(false);
     
-    // UI 업데이트를 위한 짧은 딜레이
     setTimeout(() => {
-      // 1. localStorage 명시적 제거
       localStorage.removeItem('family_id');
       localStorage.removeItem('trip_expenses');
       localStorage.removeItem('trip_souvenirs');
       
-      // 2. 모든 React State 초기화
       setFamilyId(null);
       setExpenses([]);
       setSouvenirs([]);
       setTempCode('');
       setActiveTab('schedule');
-      
       setIsResetting(false);
     }, 600);
   };
@@ -178,6 +177,29 @@ const App: React.FC = () => {
       default: return <ScheduleView />;
     }
   };
+
+  // 3. Error UI for Missing Supabase Config
+  if (!supabase) {
+    return (
+      <div className="fixed inset-0 bg-[#F8F9FD] flex items-center justify-center p-6">
+        <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-red-100 max-w-sm w-full text-center space-y-6">
+          <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto">
+            <WifiOff size={40} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-black text-[#566873]">서버 연결 오류</h2>
+            <p className="text-sm font-bold text-[#566873]/60 leading-relaxed">
+              데이터베이스 설정이 누락되었습니다.<br/>
+              관리자에게 문의하거나 Vercel 환경 변수를 확인해주세요.
+            </p>
+          </div>
+          <div className="p-4 bg-red-50 rounded-2xl text-[10px] text-red-400 font-mono text-left break-all">
+            Missing: VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isResetting) {
     return (
@@ -240,7 +262,7 @@ const App: React.FC = () => {
           <button 
             onClick={() => {
               setIsMenuOpen(true);
-              setShowResetConfirm(false); // 메뉴 열 때마다 리셋 컨펌 초기화
+              setShowResetConfirm(false);
             }}
             className="w-10 h-10 bg-white border border-[#566873]/10 text-[#566873] rounded-full flex items-center justify-center transition-all active:scale-90 shadow-sm"
           >
@@ -315,7 +337,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* React 상태 기반 커스텀 리셋 확인 UI */}
                 {!showResetConfirm ? (
                   <button 
                     onClick={() => setShowResetConfirm(true)}
