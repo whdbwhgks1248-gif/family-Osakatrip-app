@@ -1,3 +1,11 @@
+console.log(
+  "[ENV CHECK]",
+  "MODE=", import.meta.env.MODE,
+  "URL=", import.meta.env.VITE_SUPABASE_URL,
+  "HAS_KEY=", Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY)
+);
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound, RefreshCcw, Loader2, AlertCircle, WifiOff } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
