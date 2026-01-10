@@ -1,3 +1,7 @@
+console.log("ENV CHECK", {
+  VITE_SUPABASE_URL: (window as any)?.VITE_SUPABASE_URL,
+  VITE_SUPABASE_ANON_KEY: (window as any)?.VITE_SUPABASE_ANON_KEY,
+});
 
 import React, { useState, useEffect } from 'react';
 import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, ChevronRight, CheckCircle2, Lock, LogOut, KeyRound } from 'lucide-react';
