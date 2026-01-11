@@ -51,7 +51,7 @@ const App: React.FC = () => {
     
     fetchLock.current = true;
     setIsLoading(true);
-    initialLoadCompletedRef.current = false;
+    // [중요] 새로고침 시 데이터가 안 보이는 현상을 방지하기 위해 로딩 시작 시 상태 보존
     
     const cleanId = id.trim().toUpperCase();
     try {
@@ -64,6 +64,7 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS });
       lastServerDataRef.current = dataStr;
       
+      // 사용자의 액션이 아닐 때만 업데이트하여 무한 루프 방지
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -73,8 +74,7 @@ const App: React.FC = () => {
       setLastSyncedAt(new Date());
     } catch (e) { 
       console.error("Fetch error:", e);
-      // 에러 시에도 빈 상태라도 보여주기 위해 세션 완료 처리 (데이터 보호는 3번 단계에서 수행)
-      setIsInitialLoadDone(true);
+      setIsInitialLoadDone(true); // 에러가 나더라도 빈 화면이라도 보여줌
       initialLoadCompletedRef.current = true;
     } finally { 
       setIsLoading(false); 
@@ -173,7 +173,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setIsResetting(true);
     localStorage.removeItem('family_id');
-    window.location.href = window.location.origin; // 리다이렉트하여 상태 초기화
+    window.location.href = window.location.origin;
   };
 
   if (config.isMissing) return <div className="p-10 text-red-500 font-bold">Supabase Config Missing</div>;
@@ -221,7 +221,7 @@ const App: React.FC = () => {
           </header>
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
-            {!isInitialLoadDone ? (
+            {!isInitialLoadDone && !expenses.length && !souvenirs.length ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
                 <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 불러오는 중...</p>
@@ -253,7 +253,7 @@ const App: React.FC = () => {
           </nav>
 
           {isMenuOpen && (
-            <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsMenuOpen(false)}>
+            <div className="fixed inset-0 z-[700] bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsMenuOpen(false)}>
               <div className="absolute right-0 top-0 h-full w-[85%] bg-white p-10 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-10">
                   <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Settings</span>
