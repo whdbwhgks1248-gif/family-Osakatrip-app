@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, Globe, LogOut, WifiOff, CheckCircle } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, Globe, LogOut, WifiOff, CheckCircle, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -35,17 +35,58 @@ const App: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   
-  // 데이터 안전 장치: 서버 로딩이 완전히 끝나야만 저장이 가능함
+  // 데이터 로딩 완료 상태 (이것이 true가 되어야 저장이 시작됨)
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
   
-  // 무한 저장 방지 및 로컬/서버 동기화 상태 추적용 Ref
+  // 무한 루프 및 유실 방지용 Ref
   const lastSavedRef = useRef<string>("");
-  const fetchInProgress = useRef(false);
+  const isDataFetchedFromServer = useRef(false);
 
-  // 1. 실시간 데이터 동기화 구독
+  // 1. 초기 데이터 가져오기 (가장 중요한 방어선)
+  const fetchFamilyData = useCallback(async (id: string) => {
+    if (!supabase) return;
+    setIsLoading(true);
+    setIsInitialLoadDone(false); // 로드 시작 시 저장 차단
+    isDataFetchedFromServer.current = false;
+    
+    const cleanId = id.trim().toUpperCase();
+    try {
+      const { data, error } = await supabase.from('family_state').select('*').eq('family_id', cleanId).maybeSingle();
+      
+      if (error) throw error;
+      
+      if (data) {
+        const safeE = Array.isArray(data.expenses) ? data.expenses : [];
+        const safeS = Array.isArray(data.souvenirs) ? data.souvenirs : [];
+        
+        setExpenses(safeE);
+        setSouvenirs(safeS);
+        lastSavedRef.current = JSON.stringify({ e: safeE, s: safeS });
+        isDataFetchedFromServer.current = true;
+      } else {
+        // 데이터가 없는 경우 (신규 코드)
+        // 여기서 바로 upsert 하지 않고, 사용자가 데이터를 입력할 때만 생성되도록 변경
+        setExpenses([]);
+        setSouvenirs([]);
+        lastSavedRef.current = JSON.stringify({ e: [], s: [] });
+        isDataFetchedFromServer.current = true; 
+      }
+      
+      setIsInitialLoadDone(true);
+      setLastSyncedAt(new Date());
+    } catch (e) { 
+      console.error("데이터 로드 실패:", e);
+      // 에러 시 isInitialLoadDone을 true로 만들지 않아 "빈 데이터로 저장"되는 것을 원천 차단
+    } finally { 
+      setIsLoading(false); 
+    }
+  }, []);
+
+  // 2. 실시간 데이터 동기화 구독
   useEffect(() => {
     if (!supabase || !familyId || !isInitialLoadDone) return;
     
@@ -56,11 +97,12 @@ const App: React.FC = () => {
           const newData = payload.new as any;
           if (newData) {
             const dataString = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
-            // 내가 저장한 데이터가 돌아온 것이 아닐 때만 업데이트 (루프 방지)
+            // 내가 방금 저장한 것이 돌아온 게 아닐 때만 업데이트
             if (dataString !== lastSavedRef.current) {
               setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
               setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
               lastSavedRef.current = dataString;
+              setLastSyncedAt(new Date());
             }
           }
         }
@@ -68,47 +110,23 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
-  // 2. 초기 데이터 가져오기
-  const fetchFamilyData = useCallback(async (id: string) => {
-    if (!supabase || fetchInProgress.current) return;
-    fetchInProgress.current = true;
-    setIsLoading(true);
-    
-    const cleanId = id.trim().toUpperCase();
-    try {
-      const { data, error } = await supabase.from('family_state').select('*').eq('family_id', cleanId).maybeSingle();
-      if (error) throw error;
-      
-      if (data) {
-        const safeE = Array.isArray(data.expenses) ? data.expenses : [];
-        const safeS = Array.isArray(data.souvenirs) ? data.souvenirs : [];
-        setExpenses(safeE);
-        setSouvenirs(safeS);
-        // 불러온 시점의 상태를 '마지막 저장 상태'로 기록
-        lastSavedRef.current = JSON.stringify({ e: safeE, s: safeS });
-      } else {
-        // 데이터가 없는 경우 새로 생성
-        await supabase.from('family_state').upsert({ family_id: cleanId, expenses: [], souvenirs: [] });
-        lastSavedRef.current = JSON.stringify({ e: [], s: [] });
-      }
-      
-      // 불러오기가 확실히 끝났을 때만 저장 권한 부여
-      setIsInitialLoadDone(true);
-    } catch (e) { 
-      console.error("데이터 로드 실패:", e);
-    } finally { 
-      setIsLoading(false); 
-      fetchInProgress.current = false;
-    }
-  }, []);
-
-  // 3. 서버에 데이터 저장하기
+  // 3. 서버에 데이터 저장 (보호 로직 강화)
   const saveToSupabase = useCallback(async (id: string, newExpenses: Expense[], newSouvenirs: Souvenir[]) => {
-    if (!id || !supabase || !isInitialLoadDone) return;
+    // 저장 조건: Supabase 연결됨 + 초기 로딩 완료됨 + 강제 초기화 중 아님
+    if (!id || !supabase || !isInitialLoadDone || isResetting) return;
     
     const currentString = JSON.stringify({ e: newExpenses, s: newSouvenirs });
-    // 서버 데이터와 로컬 데이터가 같으면 저장하지 않음 (네트워크 낭비 방지)
+    
+    // 1. 변화가 없으면 무시
     if (currentString === lastSavedRef.current) return;
+
+    // 2. [위험 방지] 기존에 데이터가 있었는데 갑자기 모두 사라진 상태로 저장을 시도한다면?
+    // 브라우저 렉이나 오류일 수 있으므로 저장을 일시 차단 (사용자가 직접 삭제한 경우는 제외하기 어렵지만 안전 우선)
+    const prevData = JSON.parse(lastSavedRef.current || '{"e":[],"s":[]}');
+    if ((prevData.e.length > 0 || prevData.s.length > 0) && (newExpenses.length === 0 && newSouvenirs.length === 0)) {
+      console.warn("데이터가 비정상적으로 모두 삭제되어 저장을 차단했습니다.");
+      return;
+    }
     
     setIsSaving(true);
     try {
@@ -120,29 +138,28 @@ const App: React.FC = () => {
       });
       if (error) throw error;
       lastSavedRef.current = currentString;
+      setLastSyncedAt(new Date());
     } catch (e) { 
       console.error("저장 실패:", e); 
     } finally { 
-      // 저장 완료 후 잠시 표시를 유지하기 위해 약간의 딜레이
-      setTimeout(() => setIsSaving(false), 500);
+      setTimeout(() => setIsSaving(false), 800);
     }
-  }, [isInitialLoadDone]);
+  }, [isInitialLoadDone, isResetting]);
 
   // ID 변경 시 로드
   useEffect(() => { 
     if (familyId) {
-      setIsInitialLoadDone(false);
       fetchFamilyData(familyId); 
     }
   }, [familyId, fetchFamilyData]);
 
-  // 자동 저장 타이머 (데이터 변경 시 1.2초 후 실행)
+  // 데이터 변경 시 자동 저장 (1.5초 데드타임으로 안정성 확보)
   useEffect(() => {
     if (!familyId || isLoading || isResetting || !isInitialLoadDone) return;
     
     const timeout = setTimeout(() => { 
       saveToSupabase(familyId, expenses, souvenirs); 
-    }, 1200);
+    }, 1500);
     
     return () => clearTimeout(timeout);
   }, [expenses, souvenirs, familyId, saveToSupabase, isLoading, isResetting, isInitialLoadDone]);
@@ -186,6 +203,7 @@ const App: React.FC = () => {
               <input type="text" value={tempCode} onChange={(e) => setTempCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSetFamilyId(tempCode)} className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-xl font-black uppercase text-[#1675F2]" placeholder="코드 입력" />
               <button onClick={() => handleSetFamilyId(tempCode)} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl">여행 시작하기</button>
             </div>
+            <p className="text-[10px] text-center font-bold text-slate-300">코드를 입력하면 자동으로 데이터를 동기화합니다.</p>
           </div>
         </div>
       ) : (
@@ -197,6 +215,10 @@ const App: React.FC = () => {
                   {isSaving ? (
                     <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <Loader2 size={8} className="animate-spin" /> SAVING...
+                    </span>
+                  ) : !isInitialLoadDone ? (
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-black rounded-full flex items-center gap-1">
+                      <RefreshCcw size={8} className="animate-spin" /> LOADING...
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
@@ -210,11 +232,12 @@ const App: React.FC = () => {
               <button onClick={() => setIsMenuOpen(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-full"><Menu size={20}/></button>
             </div>
           </header>
+          
           <main className="flex-1 px-4 pt-[118px] pb-32">
             {isLoading && !isInitialLoadDone ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 동기화 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">서버에서 데이터 확인 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">
@@ -226,6 +249,7 @@ const App: React.FC = () => {
               </div>
             )}
           </main>
+
           <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[468px] bg-[#1675F2] rounded-full px-2 py-2 shadow-2xl z-[150] flex justify-between items-center border border-white/10">
             {[
               { id: 'schedule', label: '일정', icon: Calendar },
@@ -240,20 +264,44 @@ const App: React.FC = () => {
               </button>
             ))}
           </nav>
+
           {isMenuOpen && (
             <div className="fixed inset-0 z-[200] bg-black/30 backdrop-blur-sm">
               <div className="absolute right-0 top-0 h-full w-[85%] bg-white p-10 flex flex-col shadow-2xl">
-                <div className="flex justify-between items-center mb-10"><span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Settings</span><button onClick={() => setIsMenuOpen(false)}><X size={24}/></button></div>
+                <div className="flex justify-between items-center mb-10">
+                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Settings</span>
+                  <button onClick={() => setIsMenuOpen(false)}><X size={24}/></button>
+                </div>
                 <div className="flex-1 space-y-6">
-                  <div className="p-8 bg-[#F8F9FD] rounded-[2.5rem] border border-slate-100 space-y-2"><p className="text-[10px] font-black text-slate-400">현재 가족 코드</p><p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p></div>
-                  <button onClick={() => fetchFamilyData(familyId)} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all active:scale-95"><RefreshCcw size={16} />데이터 강제 새로고침</button>
-                  <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2"><LogOut size={16} />연결 해제</button>
+                  <div className="p-8 bg-[#F8F9FD] rounded-[2.5rem] border border-slate-100 space-y-2">
+                    <p className="text-[10px] font-black text-slate-400">현재 가족 코드</p>
+                    <p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p>
+                    {lastSyncedAt && (
+                      <p className="text-[9px] font-bold text-slate-300">최근 동기화: {lastSyncedAt.toLocaleTimeString()}</p>
+                    )}
+                  </div>
+                  
+                  <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
+                    <RefreshCcw size={16} />데이터 강제 새로고침
+                  </button>
+
+                  <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2">
+                    <LogOut size={16} />연결 해제
+                  </button>
+
                   {showResetConfirm && (
                     <div className="p-6 bg-red-500 rounded-3xl text-white space-y-4">
-                      <p className="text-xs font-bold text-center">정말 연결을 해제할까요?</p>
-                      <div className="flex gap-2"><button onClick={handleResetFamilyId} className="flex-1 py-3 bg-white text-red-500 rounded-xl font-black">해제</button><button onClick={() => setShowResetConfirm(false)} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black">취소</button></div>
+                      <div className="flex justify-center"><AlertCircle size={32} /></div>
+                      <p className="text-xs font-bold text-center">연결을 해제하면 이 기기에서<br/>여행 정보가 보이지 않게 됩니다.</p>
+                      <div className="flex gap-2">
+                        <button onClick={handleResetFamilyId} className="flex-1 py-3 bg-white text-red-500 rounded-xl font-black">확인</button>
+                        <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black">취소</button>
+                      </div>
                     </div>
                   )}
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] font-bold text-slate-200 uppercase tracking-widest">Osaka Kyoto 2026</p>
                 </div>
               </div>
             </div>
