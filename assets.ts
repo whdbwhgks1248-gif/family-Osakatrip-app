@@ -10,13 +10,13 @@ const getGDriveUrl = (id: string) =>
 
 export const IMAGES = {
   // Day 1 & 2
-  camonhotel: getGDriveUrl("1epPRIIobCxEjKK4Kj1IVgE80qIxyrZQ7"),
+  camonhotel: getGDriveUrl("1mQhjfDr4HDlmf-krx56uEquU--soSF-2"),
   hanana: getGDriveUrl("1zIOW4DLgGW9J3Fuj95vDyUrcZ8Xbcjun"),
   arashiyama: getGDriveUrl("1L4QeKoVGTFakH0_V0liw5nVEhyHa1ODA"),
   nishiki_market: getGDriveUrl("11sey_bkl8yzWwHHFMnaqARXxCFB59vJp"),
   redrock: getGDriveUrl("1dQxWvw_EnRG2oT3_dPeMT-YadY7aaiX-"),
   aeonmall: getGDriveUrl("1kjMtuhLGPPITyWPQOI58dV3ZFzKN1BdI"),
-  rinn_kujo: "",
+  rinn_kujo: getGDriveUrl("1epPRIIobCxEjKK4Kj1IVgE80qIxyrZQ7"),
 
   // Day 3
   kiyomizudera: getGDriveUrl("1I3ulyt7n896ZqqhYg5RV07DRNNxW2r8i"),

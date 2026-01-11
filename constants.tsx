@@ -136,7 +136,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         {
           time: "10:30 - 11:00",
           title: "타이쇼 하나나",
-          transport: 'move',
+          transport: 'train',
           mapUrl: "https://maps.app.goo.gl/fauUxg3ejMhf2pWj7",
           expectedCost: "교통비: ¥240",
           noImage: true
@@ -178,7 +178,6 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         {
           time: "18:30 - 19:30",
           title: "다이소 & StandardProducts",
-          transport: 'move',
           mapUrl: "https://maps.app.goo.gl/TWAKcuXMatjEMepC7",
           note: "• 각 매장 30분 시간 제한",
           noImage: true
