@@ -41,14 +41,15 @@ const App: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
   
-  // 핵심 참조 변수
-  const lastServerDataRef = useRef<string>(""); // 서버에서 마지막으로 확인된 데이터
-  const isUserActionRef = useRef<boolean>(false); // 사용자가 직접 조작 중인지 여부
+  const lastServerDataRef = useRef<string>(""); 
+  const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
+  const fetchLock = useRef<boolean>(false);
 
-  // 1. 서버에서 데이터 가져오기
   const fetchFamilyData = useCallback(async (id: string) => {
-    if (!supabase) return;
+    if (!supabase || fetchLock.current) return;
+    
+    fetchLock.current = true;
     setIsLoading(true);
     initialLoadCompletedRef.current = false;
     
@@ -63,7 +64,6 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS });
       lastServerDataRef.current = dataStr;
       
-      // 서버 데이터를 로컬 상태에 적용 (이때는 저장이 발동되지 않아야 함)
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -73,12 +73,15 @@ const App: React.FC = () => {
       setLastSyncedAt(new Date());
     } catch (e) { 
       console.error("Fetch error:", e);
+      // 에러 시에도 빈 상태라도 보여주기 위해 세션 완료 처리 (데이터 보호는 3번 단계에서 수행)
+      setIsInitialLoadDone(true);
+      initialLoadCompletedRef.current = true;
     } finally { 
       setIsLoading(false); 
+      fetchLock.current = false;
     }
   }, []);
 
-  // 2. 실시간 업데이트 수신
   useEffect(() => {
     if (!supabase || !familyId || !isInitialLoadDone) return;
     
@@ -91,9 +94,8 @@ const App: React.FC = () => {
 
           const dataStr = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
           
-          // 내가 방금 저장한 것이 아니라면 (남이 수정한 것이라면) 화면 업데이트
           if (dataStr !== lastServerDataRef.current) {
-            isUserActionRef.current = false; // 서버에서 온 데이터이므로 저장 금지
+            isUserActionRef.current = false; 
             setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
             setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
             lastServerDataRef.current = dataStr;
@@ -104,19 +106,15 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
-  // 3. 서버에 데이터 저장 (매우 엄격하게 제어)
   const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[]) => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
     const currentDataStr = JSON.stringify({ e: newE, s: newS });
-    
-    // 바뀐게 없으면 저장 안함
     if (currentDataStr === lastServerDataRef.current) return;
 
-    // [중요] 빈 데이터 보호: 기존에 데이터가 있었는데 갑자기 []가 들어오면 무시 (유실 방지 핵심)
     const lastData = JSON.parse(lastServerDataRef.current || '{"e":[],"s":[]}');
     if ((lastData.e.length > 0 || lastData.s.length > 0) && (newE.length === 0 && newS.length === 0)) {
-      console.warn("비정상적인 빈 데이터 저장을 차단했습니다.");
+      console.warn("비정상 데이터 유실 감지로 저장을 중단했습니다.");
       return;
     }
 
@@ -138,31 +136,32 @@ const App: React.FC = () => {
     }
   }, [familyId, isResetting]);
 
-  // 4. 데이터 변경 감지 및 자동 저장 타이머
   useEffect(() => {
-    // 오직 '사용자의 액션'이 있었을 때만 타이머 가동
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs);
-      isUserActionRef.current = false; // 저장 시도 후 플래그 초기화
-    }, 1000);
+      isUserActionRef.current = false; 
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, saveToSupabase]);
 
-  // 5. 상태 변경 래퍼 함수 (컴포넌트에 전달할 것)
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
-    isUserActionRef.current = true; // 사용자가 직접 바꿨음을 표시
+    isUserActionRef.current = true;
     setExpenses(updater);
   };
 
   const updateSouvenirs = (updater: React.SetStateAction<Souvenir[]>) => {
-    isUserActionRef.current = true; // 사용자가 직접 바꿨음을 표시
+    isUserActionRef.current = true;
     setSouvenirs(updater);
   };
 
-  useEffect(() => { if (familyId) fetchFamilyData(familyId); }, [familyId, fetchFamilyData]);
+  useEffect(() => { 
+    if (familyId) {
+      fetchFamilyData(familyId); 
+    }
+  }, [familyId, fetchFamilyData]);
 
   const handleSetFamilyId = (code: string) => {
     const clean = code.trim().toUpperCase();
@@ -174,7 +173,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setIsResetting(true);
     localStorage.removeItem('family_id');
-    window.location.reload();
+    window.location.href = window.location.origin; // 리다이렉트하여 상태 초기화
   };
 
   if (config.isMissing) return <div className="p-10 text-red-500 font-bold">Supabase Config Missing</div>;
@@ -225,7 +224,7 @@ const App: React.FC = () => {
             {!isInitialLoadDone ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 보호 활성화 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 불러오는 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">

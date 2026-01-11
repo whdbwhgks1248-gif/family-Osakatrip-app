@@ -37,6 +37,7 @@ export interface Souvenir {
   jpName?: string; // 일본어 상품명 (점원에게 보여주기용)
   note?: string;   // 수량, 특징 등 상세 메모
   imageUrl?: string; // 상품 이미지 URL
+  linkUrl?: string;  // 참고용 링크 (새로 추가)
   isPurchased: boolean;
 }
 
