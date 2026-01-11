@@ -14,7 +14,6 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
   const [newAmount, setNewAmount] = useState('');
   const [newPayer, setNewPayer] = useState<MemberId>(FAMILY_MEMBERS[0] || '영수');
   const [newParticipants, setNewParticipants] = useState<MemberId[]>([...FAMILY_MEMBERS]);
-  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
 
   const safeExpenses = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
 
@@ -37,42 +36,43 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
       const share = amount / validParticipants.length;
       
-      // 결제액 및 소비액 기록 (정산 여부와 상관없이 실제 쓴 돈)
+      // 결제액 기록
       if (summary[exp.payerId]) {
         summary[exp.payerId].paidTotal += amount;
       }
 
       validParticipants.forEach(pId => {
         if (!summary[pId]) return;
+        
+        // 내 소비액 누적 (정산 여부와 무관한 실제 쓴 돈)
         summary[pId].consumptionTotal += share;
         
-        // 잔액 계산: '아직 정산 안 된 사람들'의 몫만 계산에 포함
-        if (pId === exp.payerId) {
-          // 결제자는 (자신을 제외한 참여자 중 정산 안 한 사람들)의 몫만큼 받을 돈이 있음
+        // 잔액(netBalance) 계산: '아직 정산 안 된 사람들'만 계산에 포함
+        const isSettled = (exp.settledMemberIds || []).includes(pId);
+        const isPayer = pId === exp.payerId;
+
+        if (isPayer) {
+          // 결제자는 (자기 자신을 제외한 참여자 중 아직 입금 안 한 사람들)의 몫만큼 받을 돈이 있음
           const unsettledOthers = validParticipants.filter(p => p !== exp.payerId && !(exp.settledMemberIds || []).includes(p));
           summary[pId].netBalance += (unsettledOthers.length * share);
         } else {
-          // 참여자는 정산을 안 했을 때만 보낼 돈이 마이너스로 기록됨
-          if (!(exp.settledMemberIds || []).includes(pId)) {
+          // 참여자는 아직 입금을 안 했을 때만 '보낼 돈(-)'으로 기록됨
+          if (!isSettled) {
             summary[pId].netBalance -= share;
           }
         }
       });
     });
 
-    // 송금 경로 계산
+    // 송금 가이드 (누가 누구에게)
     const transfers: { from: MemberId, to: MemberId, amount: number }[] = [];
     const balances = FAMILY_MEMBERS.map(m => ({ id: m, bal: summary[m].netBalance }));
     
-    let debtors = balances.filter(b => b.bal < -0.1).sort((a, b) => a.bal - b.bal);
-    let creditors = balances.filter(b => b.bal > 0.1).sort((a, b) => b.bal - a.bal);
+    let tempDebtors = balances.filter(b => b.bal < -0.1).sort((a, b) => a.bal - b.bal).map(d => ({...d}));
+    let tempCreditors = balances.filter(b => b.bal > 0.1).sort((a, b) => b.bal - a.bal).map(c => ({...c}));
 
     let dIdx = 0;
     let cIdx = 0;
-
-    // 복제본으로 계산 (원본 데이터 보존)
-    let tempDebtors = debtors.map(d => ({...d}));
-    let tempCreditors = creditors.map(c => ({...c}));
 
     while (dIdx < tempDebtors.length && cIdx < tempCreditors.length) {
       const d = tempDebtors[dIdx];
@@ -103,8 +103,8 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
       amount: amountNum,
       payerId: newPayer,
       participantIds: [...newParticipants],
-      settledMemberIds: [], // 초기엔 아무도 안 보냄
-      date: new Date(newDate).getTime() || Date.now()
+      settledMemberIds: [], // 초기 상태는 모두 미입금
+      date: Date.now()
     };
     
     setExpenses(prev => [newExpense, ...(Array.isArray(prev) ? prev : [])]);
@@ -138,7 +138,7 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
-      {/* 지출 요약 상단 카드 */}
+      {/* 1. 상단 정산 리포트 */}
       <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-[#566873]/5">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
@@ -172,8 +172,8 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                   </div>
                 </div>
                 <div className="flex gap-4 pt-3 border-t border-[#566873]/5 text-[10px] font-bold text-[#566873]/50">
-                  <div className="flex items-center gap-1"><CreditCard size={10}/> 결제액: ₩{Math.round(data.paidTotal).toLocaleString()}</div>
-                  <div className="flex items-center gap-1 text-[#1675F2]"><UserCheck size={10}/> 소비액: ₩{Math.round(data.consumptionTotal).toLocaleString()}</div>
+                  <div className="flex items-center gap-1"><CreditCard size={10}/> 결제: ₩{Math.round(data.paidTotal).toLocaleString()}</div>
+                  <div className="flex items-center gap-1 text-[#1675F2]"><UserCheck size={10}/> 소비: ₩{Math.round(data.consumptionTotal).toLocaleString()}</div>
                 </div>
               </div>
             );
@@ -181,7 +181,7 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
         </div>
       </div>
 
-      {/* 송금 가이드 카드 */}
+      {/* 2. 송금 가이드 */}
       {settlementData.transfers.length > 0 && (
         <div className="bg-[#1675F2] rounded-[2.5rem] p-8 shadow-xl shadow-[#1675F2]/20 text-white overflow-hidden relative">
           <div className="absolute -right-4 -top-4 opacity-10 rotate-12"><ArrowRightLeft size={100} /></div>
@@ -203,26 +203,26 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                 </div>
               ))}
             </div>
-            <p className="mt-6 text-[9px] text-white/40 text-center font-bold">정산 체크를 완료하면 이 가이드가 실시간으로 업데이트됩니다.</p>
+            <p className="mt-6 text-[9px] text-white/40 text-center font-bold italic">누가 나에게 돈을 보냈는지 아래 상세 내역에서 체크해보세요!</p>
           </div>
         </div>
       )}
 
-      {/* 상세 내역 리스트 */}
+      {/* 3. 상세 내역 (정산 체크 기능 포함) */}
       <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-[#566873]/5">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-10 h-10 bg-[#F8F9FD] text-[#1675F2] rounded-xl flex items-center justify-center font-black">#</div>
           <h2 className="text-lg font-black text-[#566873] tracking-tight">상세 지출 내역</h2>
         </div>
         {safeExpenses.length === 0 ? (
-          <div className="text-center py-20 bg-[#F8F9FD] rounded-[2rem] border border-dashed border-[#566873]/10 text-xs font-black text-slate-300">내역이 없습니다</div>
+          <div className="text-center py-20 bg-[#F8F9FD] rounded-[2rem] border border-dashed border-[#566873]/10 text-xs font-black text-slate-300 uppercase tracking-widest">내역이 없습니다</div>
         ) : (
           <div className="space-y-4">
             {safeExpenses.map((exp) => (
               <div key={exp.id} className="p-6 bg-white border border-[#566873]/5 rounded-[2.5rem] shadow-sm">
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className="font-black text-[#566873]">{exp.title}</h3>
+                    <h3 className="font-black text-[#566873] text-[16px]">{exp.title}</h3>
                     <p className="text-[10px] font-bold text-slate-400">결제: {exp.payerId}</p>
                   </div>
                   <button onClick={() => deleteExpense(exp.id)} className="text-slate-200 hover:text-red-500 transition-colors p-1"><Trash2 size={16} /></button>
@@ -230,27 +230,32 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                 
                 <p className="text-2xl font-black text-[#1675F2] mb-6">₩{Number(exp.amount).toLocaleString()}</p>
                 
-                <div className="space-y-3">
-                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest ml-1">참여자 정산 현황</p>
+                <div className="space-y-3 bg-[#F8F9FD] p-4 rounded-2xl">
+                  <p className="text-[10px] font-black text-[#566873]/40 uppercase tracking-widest ml-1">입금 완료한 멤버 클릭</p>
                   <div className="flex flex-wrap gap-2">
                     {exp.participantIds.map(pId => {
                       const isPayer = pId === exp.payerId;
                       const isSettled = (exp.settledMemberIds || []).includes(pId);
                       
-                      if (isPayer) return null; // 결제자는 정산 대상에서 제외 (본인이 본인에게 돈 보낼 필요 없음)
+                      // 결제자는 체크할 필요 없음
+                      if (isPayer) return (
+                        <div key={pId} className="px-3 py-2 rounded-xl text-[10px] font-black bg-white border border-slate-100 text-slate-300 opacity-50">
+                          {pId} (결제자)
+                        </div>
+                      );
 
                       return (
                         <button
                           key={pId}
                           onClick={() => toggleSettledMember(exp.id, pId)}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black transition-all border ${
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black transition-all border shadow-sm ${
                             isSettled 
-                              ? 'bg-[#1675F2]/5 border-[#1675F2]/20 text-[#1675F2]' 
-                              : 'bg-slate-50 border-transparent text-slate-400'
+                              ? 'bg-[#1675F2] border-[#1675F2] text-white' 
+                              : 'bg-white border-slate-200 text-slate-400'
                           }`}
                         >
-                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isSettled ? 'bg-[#1675F2] text-white' : 'bg-slate-200 text-white'}`}>
-                            <Check size={8} strokeWidth={4} />
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isSettled ? 'bg-white text-[#1675F2]' : 'bg-slate-100 text-white'}`}>
+                            <Check size={8} strokeWidth={5} />
                           </div>
                           {pId}
                         </button>
@@ -264,24 +269,24 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
         )}
       </div>
 
-      {/* 지출 추가 모달 */}
+      {/* 4. 지출 추가 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-4 bg-[#1675F2]/40 backdrop-blur-md">
-          <div className="bg-white w-full max-w-md rounded-[3rem] p-8 space-y-8 animate-in slide-in-from-bottom-10">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-8 space-y-8 animate-in slide-in-from-bottom-10 shadow-2xl">
             <div className="flex justify-between items-center"><h3 className="text-2xl font-black text-[#1675F2]">지출 등록</h3><button onClick={() => setIsModalOpen(false)} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button></div>
             <div className="space-y-4">
-              <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="어디에 썼나요?" className="w-full bg-[#F8F9FD] border-none rounded-2xl px-6 py-4 font-bold" />
-              <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="얼마인가요? (₩)" className="w-full bg-[#F8F9FD] border-none rounded-2xl px-6 py-4 font-black text-[#1675F2] text-xl" />
+              <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="항목 (예: 숙소 예약)" className="w-full bg-[#F8F9FD] border-none rounded-2xl px-6 py-4 font-bold focus:ring-2 focus:ring-[#1675F2]" />
+              <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="금액 (₩)" className="w-full bg-[#F8F9FD] border-none rounded-2xl px-6 py-4 font-black text-[#1675F2] text-xl focus:ring-2 focus:ring-[#1675F2]" />
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">누가 냈나요?</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">누가 결제했나요?</label>
                 <div className="grid grid-cols-4 gap-2">{FAMILY_MEMBERS.map(m => (<button key={m} onClick={() => setNewPayer(m)} className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all ${newPayer === m ? 'bg-[#1675F2] border-[#1675F2] text-white' : 'bg-white border-slate-100 text-slate-400'}`}>{m}</button>))}</div>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">누가 참여했나요?</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">정산에 참여할 멤버 (N분의 1)</label>
                 <div className="grid grid-cols-4 gap-2">{FAMILY_MEMBERS.map(m => (<button key={m} onClick={() => toggleParticipant(m)} className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all ${newParticipants.includes(m) ? 'bg-[#1675F2]/5 border-[#1675F2] text-[#1675F2]' : 'bg-white border-slate-100 text-slate-200'}`}>{m}</button>))}</div>
               </div>
             </div>
-            <button onClick={addExpense} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl">등록 완료</button>
+            <button onClick={addExpense} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl hover:brightness-110 active:scale-95 transition-all">등록 완료</button>
           </div>
         </div>
       )}

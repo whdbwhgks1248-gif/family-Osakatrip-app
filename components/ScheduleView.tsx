@@ -1,18 +1,22 @@
 
 import React, { useState } from 'react';
 import { SCHEDULE_DATA } from '../constants.tsx';
-import { MapPin, Coins, Clock, CarFront, MoveRight, TrainFront, Plane, FileText, ExternalLink, Bus, Footprints, Info } from 'lucide-react';
+import { MapPin, Coins, Clock, CarFront, MoveRight, TrainFront, Plane, FileText, ExternalLink, Bus, Footprints, Info, ImageOff } from 'lucide-react';
 import { ScheduleItem } from '../types.ts';
 
 const ScheduleView: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState(0);
+  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
 
   const safeData = SCHEDULE_DATA.days;
   const currentDayData = safeData[selectedDay] || { label: 'Unknown', items: [] };
   const isInfoTab = currentDayData.label === '정보';
 
+  const handleImgError = (key: string) => {
+    setImgErrors(prev => ({ ...prev, [key]: true }));
+  };
+
   const getTransportIcon = (item: ScheduleItem) => {
-    // 1. Explicit transport field
     if (item.transport === 'bus') return <Bus size={14} />;
     if (item.transport === 'walk') return <Footprints size={14} />;
     if (item.transport === 'taxi') return <CarFront size={14} />;
@@ -20,7 +24,6 @@ const ScheduleView: React.FC = () => {
     if (item.transport === 'flight') return <Plane size={14} />;
     if (item.transport === 'move') return <MoveRight size={14} />;
 
-    // 2. Fallback to keyword detection (legacy support)
     const title = item.title;
     const cost = item.expectedCost || '';
     if (title.includes('🚕') || cost.includes('택시비')) return <CarFront size={14} />;
@@ -33,7 +36,6 @@ const ScheduleView: React.FC = () => {
 
   return (
     <div className="space-y-2 animate-in fade-in duration-700">
-      {/* Date Selector - Adjusted for symmetric padding */}
       <div className="flex gap-2 overflow-x-auto py-3 no-scrollbar -mx-4 px-4 bg-[#FCFCFC]">
         {safeData.map((day, idx) => (
           <button
@@ -53,7 +55,6 @@ const ScheduleView: React.FC = () => {
         ))}
       </div>
 
-      {/* List Container - Balanced spacing */}
       <div className={`space-y-5 relative pt-2 ${!isInfoTab ? 'pl-3 border-l-2 border-[#1675F2]/10' : ''}`}>
         {currentDayData.items.map((item, idx) => {
           const transportIcon = getTransportIcon(item);
@@ -64,15 +65,12 @@ const ScheduleView: React.FC = () => {
 
           return (
             <div key={idx} className="relative">
-              {/* Timeline Dot (Only for schedule tabs) */}
               {!isInfoTab && (
                 <div className="absolute -left-[22px] top-0 w-4 h-4 rounded-full border-4 border-[#FCFCFC] bg-[#1675F2] z-10"></div>
               )}
               
               <div className={`bg-white rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgba(86,104,115,0.06)] border transition-all ${isInfoTab ? 'border-[#1675F2]/10 bg-gradient-to-br from-white to-[#F8F9FD]' : isMovement ? 'border-[#1675F2]/20 bg-gradient-to-br from-white to-[#1675F2]/5' : 'border-[#566873]/5'}`}>
-                {/* Header Info */}
                 <div className={`p-6 ${hasImage ? 'pb-6' : 'pb-4'}`}>
-                  {/* Row for Map and Time (If not info tab) */}
                   {(!isInfoTab || item.mapUrl) && (
                     <div className={`flex justify-between items-start ${isInfoTab ? 'mb-1.5' : 'mb-2'}`}>
                       <div className="flex items-center gap-1.5">
@@ -106,29 +104,30 @@ const ScheduleView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Hero Image (Single) */}
-                {!item.noImage && item.image && (
+                {!item.noImage && item.image && !imgErrors[`${idx}-main`] && (
                   <div className="relative w-full aspect-[16/10] bg-[#F1F2F0] overflow-hidden">
                     <img 
                       src={item.image} 
                       alt={item.title} 
+                      onError={() => handleImgError(`${idx}-main`)}
                       className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
                     />
                   </div>
                 )}
 
-                {/* Multiple Images (Gallary style or list) */}
                 {!item.noImage && item.images && item.images.map((img, i) => (
-                  <div key={i} className={`relative w-full border-b border-[#566873]/5 last:border-b-0 bg-[#F1F2F0] overflow-hidden ${img.fit === 'contain' ? 'aspect-auto py-4 bg-white' : 'aspect-[16/10]'}`}>
-                    <img 
-                      src={img.src} 
-                      alt={img.alt || item.title} 
-                      className={`w-full h-full transition-transform duration-1000 ${img.fit === 'contain' ? 'object-contain max-h-[80vh]' : 'object-cover hover:scale-105'}`}
-                    />
-                  </div>
+                  !imgErrors[`${idx}-sub-${i}`] && (
+                    <div key={i} className={`relative w-full border-b border-[#566873]/5 last:border-b-0 bg-[#F1F2F0] overflow-hidden ${img.fit === 'contain' ? 'aspect-auto py-4 bg-white' : 'aspect-[16/10]'}`}>
+                      <img 
+                        src={img.src} 
+                        alt={img.alt || item.title} 
+                        onError={() => handleImgError(`${idx}-sub-${i}`)}
+                        className={`w-full h-full transition-transform duration-1000 ${img.fit === 'contain' ? 'object-contain max-h-[80vh]' : 'object-cover hover:scale-105'}`}
+                      />
+                    </div>
+                  )
                 ))}
 
-                {/* PDF/Link Document Block */}
                 {item.pdfUrl && (
                   <div className={`px-6 pb-6 ${hasImage ? 'pt-6' : 'pt-2'}`}>
                     <a 
@@ -153,7 +152,6 @@ const ScheduleView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Expected Cost */}
                 {item.expectedCost && (
                   <div className={`px-6 ${hasImage && !item.pdfUrl ? 'pt-6' : 'pt-1'} ${!item.note ? 'pb-8' : 'pb-1'}`}>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FDF6B2]/80 text-[#1675F2] rounded-xl text-[11px] font-black shadow-sm border border-[#F2E96D]/30">
@@ -163,7 +161,6 @@ const ScheduleView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Notes Section */}
                 {item.note && (
                   <div className={`p-6 ${hasImage && !item.pdfUrl && !item.expectedCost ? 'pt-6' : 'pt-2'}`}>
                     <div className={`${isInfoTab ? 'bg-white' : 'bg-[#F1F2F0]/40'} p-4 rounded-2xl border border-[#566873]/5`}>
