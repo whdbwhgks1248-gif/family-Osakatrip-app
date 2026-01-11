@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SCHEDULE_DATA } from '../constants.tsx';
-import { MapPin, Coins, Clock, CarFront, MoveRight, TrainFront, Plane, FileText, ExternalLink, Bus, Footprints, Info, ImageOff } from 'lucide-react';
+import { MapPin, Coins, Clock, CarFront, MoveRight, TrainFront, Plane, FileText, ExternalLink, Bus, Footprints, Info, ImageIcon } from 'lucide-react';
 import { ScheduleItem } from '../types.ts';
 
 const ScheduleView: React.FC = () => {
@@ -104,28 +104,42 @@ const ScheduleView: React.FC = () => {
                   </div>
                 </div>
 
-                {!item.noImage && item.image && !imgErrors[`${idx}-main`] && (
-                  <div className="relative w-full aspect-[16/10] bg-[#F1F2F0] overflow-hidden">
-                    <img 
-                      src={item.image} 
-                      alt={item.title} 
-                      onError={() => handleImgError(`${idx}-main`)}
-                      className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
-                    />
+                {/* 메인 이미지 영역 */}
+                {!item.noImage && item.image && (
+                  <div className="relative w-full aspect-[16/10] bg-[#F1F2F0] overflow-hidden flex items-center justify-center">
+                    {imgErrors[`${selectedDay}-${idx}-main`] ? (
+                      <div className="flex flex-col items-center gap-2 opacity-20">
+                        <ImageIcon size={32} />
+                        <span className="text-[10px] font-bold">이미지 준비 중</span>
+                      </div>
+                    ) : (
+                      <img 
+                        src={item.image} 
+                        alt=""
+                        onError={() => handleImgError(`${selectedDay}-${idx}-main`)}
+                        className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
+                      />
+                    )}
                   </div>
                 )}
 
+                {/* 서브 이미지 영역 (확정서 등) */}
                 {!item.noImage && item.images && item.images.map((img, i) => (
-                  !imgErrors[`${idx}-sub-${i}`] && (
-                    <div key={i} className={`relative w-full border-b border-[#566873]/5 last:border-b-0 bg-[#F1F2F0] overflow-hidden ${img.fit === 'contain' ? 'aspect-auto py-4 bg-white' : 'aspect-[16/10]'}`}>
+                  <div key={i} className={`relative w-full border-b border-[#566873]/5 last:border-b-0 bg-[#F1F2F0] overflow-hidden flex items-center justify-center ${img.fit === 'contain' ? 'aspect-auto py-4 bg-white' : 'aspect-[16/10]'}`}>
+                    {imgErrors[`${selectedDay}-${idx}-sub-${i}`] ? (
+                      <div className="flex flex-col items-center gap-2 opacity-20 py-10">
+                        <ImageIcon size={32} />
+                        <span className="text-[10px] font-bold">이미지 준비 중</span>
+                      </div>
+                    ) : (
                       <img 
                         src={img.src} 
-                        alt={img.alt || item.title} 
-                        onError={() => handleImgError(`${idx}-sub-${i}`)}
+                        alt=""
+                        onError={() => handleImgError(`${selectedDay}-${idx}-sub-${i}`)}
                         className={`w-full h-full transition-transform duration-1000 ${img.fit === 'contain' ? 'object-contain max-h-[80vh]' : 'object-cover hover:scale-105'}`}
                       />
-                    </div>
-                  )
+                    )}
+                  </div>
                 ))}
 
                 {item.pdfUrl && (
