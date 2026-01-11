@@ -8,7 +8,7 @@
 // 직접 링크 형식: https://lh3.googleusercontent.com/d/[ID]
 export const IMAGES = {
   // Day 1 & 2
-  camonhotel: "https://drive.google.com/file/d/1mQhjfDr4HDlmf-krx56uEquU--soSF-2/view?usp=sharing",
+  camonhotel: "https://drive.google.com/file/d/1mQhjfDr4HDlmf-krx56uEquU--soSF-2/view?usp=drive_link",
   hanana: "https://lh3.googleusercontent.com/d/1zIOW4DLgGW9J3Fuj95vDyUrcZ8Xbcjun",
   arashiyama: "https://lh3.googleusercontent.com/d/1L4QeKoVGTFakH0_V0liw5nVEhyHa1ODA",
   nishiki_market: "https://lh3.googleusercontent.com/d/11sey_bkl8yzWwHHFMnaqARXxCFB59vJp",
