@@ -2,10 +2,11 @@
 /**
  * 이미지를 로드하는 방법:
  * 구글 드라이브 '공유' 설정에서 '링크가 있는 모든 사용자'에게 '뷰어' 권한을 주어야 합니다.
- * 링크 형식: https://drive.google.com/uc?export=view&id=[ID]
+ * thumbnail API는 웹 앱에서 구글 드라이브 이미지를 표시할 때 가장 안정적인 방식입니다.
  */
 
-const getGDriveUrl = (id: string) => id ? `https://drive.google.com/uc?export=view&id=${id}` : "";
+const getGDriveUrl = (id: string) => 
+  id ? `https://drive.google.com/thumbnail?id=${id}&sz=w1000` : "";
 
 export const IMAGES = {
   // Day 1 & 2
