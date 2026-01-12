@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
   
-  // Ref들을 사용하여 최신 상태를 추적 (동기화 로직의 핵심)
+  // 상태 동기화를 위한 Ref
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
@@ -63,7 +63,6 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS });
       lastServerDataRef.current = dataStr;
       
-      // 서버 데이터를 가져온 것이므로 사용자 액션 플래그는 끔
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -87,18 +86,25 @@ const App: React.FC = () => {
       .channel(`realtime-${familyId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
-          // 저장 중이거나 내가 직접 액션 중일 때는 실시간 업데이트 무시 (데이터 롤백 방지)
+          // 중요: 내가 저장 중이거나 입력 중일 때는 서버의 메아리를 무시함
           if (isSavingRef.current || isUserActionRef.current) return;
 
           const newData = payload.new as any;
           if (!newData) return;
 
+          // 버그의 핵심 원인 해결: Supabase Realtime이 가끔 JSON 컬럼을 누락하고 보낼 때가 있음.
+          // 데이터가 실제로 포함되어 있을 때만 갱신하도록 가드 로직 추가.
+          if (newData.expenses === undefined || newData.souvenirs === undefined) {
+            console.log("Partial update received, skipping to prevent data loss.");
+            return;
+          }
+
           const dataStr = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
           
-          // 이미 가지고 있는 데이터와 같으면 무시
+          // 현재 로컬 데이터와 서버 데이터가 완벽히 같으면 무시
           if (dataStr === lastServerDataRef.current) return;
 
-          // 새로운 데이터 적용
+          // 데이터 갱신
           setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
           setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
           lastServerDataRef.current = dataStr;
@@ -108,7 +114,7 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
-  // 서버 저장 (DB Upsert)
+  // 서버 저장
   const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[]) => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
@@ -124,36 +130,35 @@ const App: React.FC = () => {
       });
       if (error) throw error;
       
-      // 저장이 완료되면 현재 상태를 동기화된 상태로 기록
+      // 저장 완료 후 즉시 Ref 업데이트하여 이어지는 실시간 이벤트를 방어
       lastServerDataRef.current = JSON.stringify({ e: newE, s: newS });
       setLastSyncedAt(new Date());
     } catch (e) {
       console.error("Save error:", e);
     } finally {
       setIsSaving(false);
-      isSavingRef.current = false;
+      // 저장 플래그를 조금 더 늦게 해제하여 네트워크 지연에 따른 데이터 롤백 방지
+      setTimeout(() => {
+        isSavingRef.current = false;
+      }, 500);
     }
   }, [familyId, isResetting]);
 
-  // 자동 저장 타이머 로직
+  // 자동 저장 타이머
   useEffect(() => {
-    // 사용자가 직접 변경한 것이 아니면 저장 로직 실행 안 함
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
 
-    // "사라지는 현상"을 막기 위한 핵심: 
-    // 사용자가 입력하자마자 '최신 서버 상태' 정보를 로컬 상태로 미리 덮어버림.
-    // 이렇게 하면 실시간 채널에서 '옛날 데이터'가 도착해도 무시하게 됨.
+    // 낙관적 업데이트: 서버 응답 전 미리 Ref를 기록하여 실시간 충돌 차단
     lastServerDataRef.current = JSON.stringify({ e: expenses, s: souvenirs });
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs);
       isUserActionRef.current = false; 
-    }, 800); // 0.8초 딜레이
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, saveToSupabase]);
 
-  // 상태 업데이트 래퍼 (유저 액션 플래그 설정)
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
     setExpenses(updater);
