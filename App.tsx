@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, Globe, LogOut, WifiOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -44,15 +44,11 @@ const App: React.FC = () => {
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
-  const fetchLock = useRef<boolean>(false);
 
   const fetchFamilyData = useCallback(async (id: string) => {
-    if (!supabase || fetchLock.current) return;
+    if (!supabase) return;
     
-    fetchLock.current = true;
     setIsLoading(true);
-    // [중요] 새로고침 시 데이터가 안 보이는 현상을 방지하기 위해 로딩 시작 시 상태 보존
-    
     const cleanId = id.trim().toUpperCase();
     try {
       const { data, error } = await supabase.from('family_state').select('*').eq('family_id', cleanId).maybeSingle();
@@ -64,7 +60,7 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS });
       lastServerDataRef.current = dataStr;
       
-      // 사용자의 액션이 아닐 때만 업데이트하여 무한 루프 방지
+      // 서버에서 가져온 데이터이므로 사용자 액션은 false로 설정
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -74,14 +70,13 @@ const App: React.FC = () => {
       setLastSyncedAt(new Date());
     } catch (e) { 
       console.error("Fetch error:", e);
-      setIsInitialLoadDone(true); // 에러가 나더라도 빈 화면이라도 보여줌
-      initialLoadCompletedRef.current = true;
+      setIsInitialLoadDone(true);
     } finally { 
       setIsLoading(false); 
-      fetchLock.current = false;
     }
   }, []);
 
+  // 실시간 구독
   useEffect(() => {
     if (!supabase || !familyId || !isInitialLoadDone) return;
     
@@ -94,6 +89,7 @@ const App: React.FC = () => {
 
           const dataStr = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
           
+          // 현재 내 앱의 상태(Ref)와 서버의 데이터가 다를 때만 업데이트 (내꺼 덮어쓰기 방지)
           if (dataStr !== lastServerDataRef.current) {
             isUserActionRef.current = false; 
             setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
@@ -106,18 +102,10 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
+  // 서버 저장 로직
   const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[]) => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
-    const currentDataStr = JSON.stringify({ e: newE, s: newS });
-    if (currentDataStr === lastServerDataRef.current) return;
-
-    const lastData = JSON.parse(lastServerDataRef.current || '{"e":[],"s":[]}');
-    if ((lastData.e.length > 0 || lastData.s.length > 0) && (newE.length === 0 && newS.length === 0)) {
-      console.warn("비정상 데이터 유실 감지로 저장을 중단했습니다.");
-      return;
-    }
-
     setIsSaving(true);
     try {
       const { error } = await supabase.from('family_state').upsert({ 
@@ -127,22 +115,27 @@ const App: React.FC = () => {
         updated_at: new Date().toISOString() 
       });
       if (error) throw error;
-      lastServerDataRef.current = currentDataStr;
+      // 저장이 성공하면 현재 상태를 서버와 일치하는 상태로 Ref 업데이트
+      lastServerDataRef.current = JSON.stringify({ e: newE, s: newS });
       setLastSyncedAt(new Date());
     } catch (e) {
       console.error("Save error:", e);
     } finally {
-      setTimeout(() => setIsSaving(false), 500);
+      setIsSaving(false);
     }
   }, [familyId, isResetting]);
 
+  // 상태 변경 시 자동 저장 타이머
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
+
+    // 사용자가 데이터를 바꿨으므로, 실시간 이벤트로 인해 덮어씌워지지 않도록 Ref를 즉시 업데이트
+    lastServerDataRef.current = JSON.stringify({ e: expenses, s: souvenirs });
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs);
       isUserActionRef.current = false; 
-    }, 1200);
+    }, 1000); // 1초 뒤 저장
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, saveToSupabase]);
@@ -158,9 +151,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { 
-    if (familyId) {
-      fetchFamilyData(familyId); 
-    }
+    if (familyId) fetchFamilyData(familyId); 
   }, [familyId, fetchFamilyData]);
 
   const handleSetFamilyId = (code: string) => {
@@ -173,7 +164,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setIsResetting(true);
     localStorage.removeItem('family_id');
-    window.location.href = window.location.origin;
+    window.location.reload();
   };
 
   if (config.isMissing) return <div className="p-10 text-red-500 font-bold">Supabase Config Missing</div>;
@@ -203,16 +194,12 @@ const App: React.FC = () => {
                     <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <Loader2 size={8} className="animate-spin" /> SAVING...
                     </span>
-                  ) : !isInitialLoadDone ? (
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-black rounded-full flex items-center gap-1">
-                      <RefreshCcw size={8} className="animate-spin" /> SYNCING...
-                    </span>
                   ) : (
                     <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <CheckCircle size={8} /> LIVE
                     </span>
                   )}
-                  <span className="text-[10px] font-black text-slate-300">ID: {familyId}</span>
+                  <span className="text-[10px] font-black text-slate-300 tracking-tight uppercase">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
@@ -221,10 +208,10 @@ const App: React.FC = () => {
           </header>
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
-            {!isInitialLoadDone && !expenses.length && !souvenirs.length ? (
+            {!isInitialLoadDone ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 불러오는 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 로딩 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">
