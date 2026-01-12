@@ -41,10 +41,13 @@ const App: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
   
+  // Ref들을 사용하여 최신 상태를 추적 (동기화 로직의 핵심)
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
+  const isSavingRef = useRef<boolean>(false);
 
+  // 데이터 로드
   const fetchFamilyData = useCallback(async (id: string) => {
     if (!supabase) return;
     
@@ -60,7 +63,7 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS });
       lastServerDataRef.current = dataStr;
       
-      // 서버에서 가져온 데이터이므로 사용자 액션은 false로 설정
+      // 서버 데이터를 가져온 것이므로 사용자 액션 플래그는 끔
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -76,7 +79,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 실시간 구독
+  // 실시간 구독 (Update Event 수신)
   useEffect(() => {
     if (!supabase || !familyId || !isInitialLoadDone) return;
     
@@ -84,29 +87,34 @@ const App: React.FC = () => {
       .channel(`realtime-${familyId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
+          // 저장 중이거나 내가 직접 액션 중일 때는 실시간 업데이트 무시 (데이터 롤백 방지)
+          if (isSavingRef.current || isUserActionRef.current) return;
+
           const newData = payload.new as any;
           if (!newData) return;
 
           const dataStr = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
           
-          // 현재 내 앱의 상태(Ref)와 서버의 데이터가 다를 때만 업데이트 (내꺼 덮어쓰기 방지)
-          if (dataStr !== lastServerDataRef.current) {
-            isUserActionRef.current = false; 
-            setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
-            setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
-            lastServerDataRef.current = dataStr;
-            setLastSyncedAt(new Date());
-          }
+          // 이미 가지고 있는 데이터와 같으면 무시
+          if (dataStr === lastServerDataRef.current) return;
+
+          // 새로운 데이터 적용
+          setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
+          setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
+          lastServerDataRef.current = dataStr;
+          setLastSyncedAt(new Date());
         }
       ).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
-  // 서버 저장 로직
+  // 서버 저장 (DB Upsert)
   const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[]) => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
+    isSavingRef.current = true;
     setIsSaving(true);
+    
     try {
       const { error } = await supabase.from('family_state').upsert({ 
         family_id: familyId, 
@@ -115,31 +123,37 @@ const App: React.FC = () => {
         updated_at: new Date().toISOString() 
       });
       if (error) throw error;
-      // 저장이 성공하면 현재 상태를 서버와 일치하는 상태로 Ref 업데이트
+      
+      // 저장이 완료되면 현재 상태를 동기화된 상태로 기록
       lastServerDataRef.current = JSON.stringify({ e: newE, s: newS });
       setLastSyncedAt(new Date());
     } catch (e) {
       console.error("Save error:", e);
     } finally {
       setIsSaving(false);
+      isSavingRef.current = false;
     }
   }, [familyId, isResetting]);
 
-  // 상태 변경 시 자동 저장 타이머
+  // 자동 저장 타이머 로직
   useEffect(() => {
+    // 사용자가 직접 변경한 것이 아니면 저장 로직 실행 안 함
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
 
-    // 사용자가 데이터를 바꿨으므로, 실시간 이벤트로 인해 덮어씌워지지 않도록 Ref를 즉시 업데이트
+    // "사라지는 현상"을 막기 위한 핵심: 
+    // 사용자가 입력하자마자 '최신 서버 상태' 정보를 로컬 상태로 미리 덮어버림.
+    // 이렇게 하면 실시간 채널에서 '옛날 데이터'가 도착해도 무시하게 됨.
     lastServerDataRef.current = JSON.stringify({ e: expenses, s: souvenirs });
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs);
       isUserActionRef.current = false; 
-    }, 1000); // 1초 뒤 저장
+    }, 800); // 0.8초 딜레이
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, saveToSupabase]);
 
+  // 상태 업데이트 래퍼 (유저 액션 플래그 설정)
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
     setExpenses(updater);
