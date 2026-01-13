@@ -46,7 +46,7 @@ export interface Souvenir {
 export interface PackItem {
   id: string;
   title: string;
-  assignedTo: Assignee;
+  assignedTo: Assignee[]; // 단일 값이 아닌 배열로 변경
   isDone: boolean;
 }
 
