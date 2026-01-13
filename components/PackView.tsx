@@ -11,26 +11,44 @@ interface PackViewProps {
 const PackView: React.FC<PackViewProps> = ({ packItems = [], setPackItems }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newAssignedTo, setNewAssignedTo] = useState<Assignee>('공통');
+  const [newAssignedTo, setNewAssignedTo] = useState<Assignee[]>(['공통']);
   const [filter, setFilter] = useState<Assignee | '전체'>('전체');
 
   const safeItems = useMemo(() => Array.isArray(packItems) ? packItems : [], [packItems]);
 
   const filteredItems = useMemo(() => {
     if (filter === '전체') return safeItems;
-    return safeItems.filter(item => item.assignedTo === filter);
+    // 필터링된 담당자가 포함되어 있거나, '공통' 항목인 경우 표시
+    return safeItems.filter(item => 
+      item.assignedTo.includes(filter) || (filter !== '공통' && item.assignedTo.includes('공통'))
+    );
   }, [safeItems, filter]);
+
+  const toggleAssignee = (opt: Assignee) => {
+    setNewAssignedTo(prev => {
+      if (opt === '공통') return ['공통'];
+      
+      const withoutCommon = prev.filter(p => p !== '공통');
+      if (withoutCommon.includes(opt)) {
+        const next = withoutCommon.filter(p => p !== opt);
+        return next.length === 0 ? ['공통'] : next;
+      } else {
+        return [...withoutCommon, opt];
+      }
+    });
+  };
 
   const addItem = () => {
     if (!newTitle.trim()) return;
     const newItem: PackItem = {
       id: Date.now().toString(),
       title: newTitle.trim(),
-      assignedTo: newAssignedTo,
+      assignedTo: [...newAssignedTo],
       isDone: false
     };
     setPackItems(prev => [newItem, ...(Array.isArray(prev) ? prev : [])]);
     setNewTitle('');
+    setNewAssignedTo(['공통']);
     setIsModalOpen(false);
   };
 
@@ -101,16 +119,17 @@ const PackView: React.FC<PackViewProps> = ({ packItems = [], setPackItems }) => 
                   <span className={`text-[15px] font-bold leading-tight ${item.isDone ? 'line-through text-slate-400' : 'text-[#566873]'}`}>
                     {item.title}
                   </span>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    {item.assignedTo === '공통' ? (
-                      <div className="flex items-center gap-1 text-[9px] font-black text-[#1675F2] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100/50">
-                        <Users size={10} /> 공통 (모두 챙기기)
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {item.assignedTo.map(assignee => (
+                      <div key={assignee} className={`flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-md border ${
+                        assignee === '공통' 
+                          ? 'text-[#1675F2] bg-blue-50 border-blue-100/50' 
+                          : 'text-slate-400 bg-slate-50 border-slate-100'
+                      }`}>
+                        {assignee === '공통' ? <Users size={10} /> : <User size={10} />}
+                        {assignee} {assignee !== '공통' && '담당'}
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-1 text-[9px] font-black text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                        <User size={10} /> {item.assignedTo} 담당
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               </div>
@@ -147,14 +166,14 @@ const PackView: React.FC<PackViewProps> = ({ packItems = [], setPackItems }) => 
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">누가 챙길까요?</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">누가 챙길까요? (중복 선택 가능)</label>
                 <div className="grid grid-cols-4 gap-2">
                   {ASSIGNEE_OPTIONS.map(opt => (
                     <button
                       key={opt}
-                      onClick={() => setNewAssignedTo(opt)}
+                      onClick={() => toggleAssignee(opt)}
                       className={`py-3 rounded-xl text-[11px] font-black border-2 transition-all ${
-                        newAssignedTo === opt 
+                        newAssignedTo.includes(opt) 
                           ? 'bg-[#1675F2] border-[#1675F2] text-white shadow-md' 
                           : 'bg-white border-slate-50 text-slate-400'
                       }`}
