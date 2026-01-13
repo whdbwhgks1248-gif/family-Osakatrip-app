@@ -1,7 +1,9 @@
 
 export type MemberId = '영수' | '연실' | '한나' | '유나' | '아라' | '현아' | '건';
+export type Assignee = MemberId | '공통';
 
 export const FAMILY_MEMBERS: MemberId[] = ['영수', '연실', '한나', '유나', '아라', '현아', '건'];
+export const ASSIGNEE_OPTIONS: Assignee[] = ['공통', ...FAMILY_MEMBERS];
 
 export interface ScheduleItem {
   time?: string;
@@ -39,6 +41,13 @@ export interface Souvenir {
   imageUrl?: string; // 상품 이미지 URL
   linkUrl?: string;  // 참고용 링크 (새로 추가)
   isPurchased: boolean;
+}
+
+export interface PackItem {
+  id: string;
+  title: string;
+  assignedTo: Assignee;
+  isDone: boolean;
 }
 
 export interface ChatMessage {

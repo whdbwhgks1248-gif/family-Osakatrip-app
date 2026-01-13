@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, MessageSquare, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
 import SettlementView from './components/SettlementView';
 import SouvenirView from './components/SouvenirView';
-import AIChatView from './components/AIChatView';
-import { Expense, Souvenir } from './types';
+import PackView from './components/PackView';
+import { Expense, Souvenir, PackItem } from './types';
 import { SCHEDULE_DATA } from './constants';
 
 const getSupabaseConfig = () => {
@@ -20,7 +20,7 @@ const getSupabaseConfig = () => {
 const config = getSupabaseConfig();
 const supabase = !config.isMissing ? createClient(config.url, config.anonKey) : null;
 
-type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'ai';
+type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'pack';
 
 const App: React.FC = () => {
   const [familyId, setFamilyId] = useState<string | null>(() => {
@@ -40,18 +40,19 @@ const App: React.FC = () => {
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
+  const [packItems, setPackItems] = useState<PackItem[]>([]);
   
-  // 상태 동기화를 위한 Ref
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
-  const isSavingRef = useRef<boolean>(false);
+  const fetchLock = useRef<boolean>(false);
 
-  // 데이터 로드
   const fetchFamilyData = useCallback(async (id: string) => {
-    if (!supabase) return;
+    if (!supabase || fetchLock.current) return;
     
+    fetchLock.current = true;
     setIsLoading(true);
+    
     const cleanId = id.trim().toUpperCase();
     try {
       const { data, error } = await supabase.from('family_state').select('*').eq('family_id', cleanId).maybeSingle();
@@ -59,26 +60,29 @@ const App: React.FC = () => {
       
       const safeE = (data && Array.isArray(data.expenses)) ? data.expenses : [];
       const safeS = (data && Array.isArray(data.souvenirs)) ? data.souvenirs : [];
+      const safeP = (data && Array.isArray(data.pack_items)) ? data.pack_items : [];
       
-      const dataStr = JSON.stringify({ e: safeE, s: safeS });
+      const dataStr = JSON.stringify({ e: safeE, s: safeS, p: safeP });
       lastServerDataRef.current = dataStr;
       
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
+      setPackItems(safeP);
       
       initialLoadCompletedRef.current = true;
       setIsInitialLoadDone(true);
       setLastSyncedAt(new Date());
     } catch (e) { 
       console.error("Fetch error:", e);
-      setIsInitialLoadDone(true);
+      setIsInitialLoadDone(true); 
+      initialLoadCompletedRef.current = true;
     } finally { 
       setIsLoading(false); 
+      fetchLock.current = false;
     }
   }, []);
 
-  // 실시간 구독 (Update Event 수신)
   useEffect(() => {
     if (!supabase || !familyId || !isInitialLoadDone) return;
     
@@ -86,78 +90,69 @@ const App: React.FC = () => {
       .channel(`realtime-${familyId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
-          // 중요: 내가 저장 중이거나 입력 중일 때는 서버의 메아리를 무시함
-          if (isSavingRef.current || isUserActionRef.current) return;
-
           const newData = payload.new as any;
           if (!newData) return;
 
-          // 버그의 핵심 원인 해결: Supabase Realtime이 가끔 JSON 컬럼을 누락하고 보낼 때가 있음.
-          // 데이터가 실제로 포함되어 있을 때만 갱신하도록 가드 로직 추가.
-          if (newData.expenses === undefined || newData.souvenirs === undefined) {
-            console.log("Partial update received, skipping to prevent data loss.");
-            return;
-          }
-
-          const dataStr = JSON.stringify({ e: newData.expenses, s: newData.souvenirs });
+          const dataStr = JSON.stringify({ 
+            e: newData.expenses, 
+            s: newData.souvenirs,
+            p: newData.pack_items
+          });
           
-          // 현재 로컬 데이터와 서버 데이터가 완벽히 같으면 무시
-          if (dataStr === lastServerDataRef.current) return;
-
-          // 데이터 갱신
-          setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
-          setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
-          lastServerDataRef.current = dataStr;
-          setLastSyncedAt(new Date());
+          if (dataStr !== lastServerDataRef.current) {
+            isUserActionRef.current = false; 
+            setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
+            setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
+            setPackItems(Array.isArray(newData.pack_items) ? newData.pack_items : []);
+            lastServerDataRef.current = dataStr;
+            setLastSyncedAt(new Date());
+          }
         }
       ).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [familyId, isInitialLoadDone]);
 
-  // 서버 저장
-  const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[]) => {
+  const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[], newP: PackItem[]) => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
-    isSavingRef.current = true;
+    const currentDataStr = JSON.stringify({ e: newE, s: newS, p: newP });
+    if (currentDataStr === lastServerDataRef.current) return;
+
+    const lastData = JSON.parse(lastServerDataRef.current || '{"e":[],"s":[],"p":[]}');
+    if ((lastData.e.length > 0 || lastData.s.length > 0 || lastData.p.length > 0) && (newE.length === 0 && newS.length === 0 && newP.length === 0)) {
+      console.warn("비정상 데이터 유실 감지로 저장을 중단했습니다.");
+      return;
+    }
+
     setIsSaving(true);
-    
     try {
       const { error } = await supabase.from('family_state').upsert({ 
         family_id: familyId, 
         expenses: newE, 
         souvenirs: newS, 
+        pack_items: newP,
         updated_at: new Date().toISOString() 
       });
       if (error) throw error;
-      
-      // 저장 완료 후 즉시 Ref 업데이트하여 이어지는 실시간 이벤트를 방어
-      lastServerDataRef.current = JSON.stringify({ e: newE, s: newS });
+      lastServerDataRef.current = currentDataStr;
       setLastSyncedAt(new Date());
     } catch (e) {
       console.error("Save error:", e);
     } finally {
-      setIsSaving(false);
-      // 저장 플래그를 조금 더 늦게 해제하여 네트워크 지연에 따른 데이터 롤백 방지
-      setTimeout(() => {
-        isSavingRef.current = false;
-      }, 500);
+      setTimeout(() => setIsSaving(false), 500);
     }
   }, [familyId, isResetting]);
 
-  // 자동 저장 타이머
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
 
-    // 낙관적 업데이트: 서버 응답 전 미리 Ref를 기록하여 실시간 충돌 차단
-    lastServerDataRef.current = JSON.stringify({ e: expenses, s: souvenirs });
-
     const timer = setTimeout(() => {
-      saveToSupabase(expenses, souvenirs);
+      saveToSupabase(expenses, souvenirs, packItems);
       isUserActionRef.current = false; 
-    }, 800);
+    }, 1200);
 
     return () => clearTimeout(timer);
-  }, [expenses, souvenirs, saveToSupabase]);
+  }, [expenses, souvenirs, packItems, saveToSupabase]);
 
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
@@ -169,8 +164,15 @@ const App: React.FC = () => {
     setSouvenirs(updater);
   };
 
+  const updatePackItems = (updater: React.SetStateAction<PackItem[]>) => {
+    isUserActionRef.current = true;
+    setPackItems(updater);
+  };
+
   useEffect(() => { 
-    if (familyId) fetchFamilyData(familyId); 
+    if (familyId) {
+      fetchFamilyData(familyId); 
+    }
   }, [familyId, fetchFamilyData]);
 
   const handleSetFamilyId = (code: string) => {
@@ -183,7 +185,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setIsResetting(true);
     localStorage.removeItem('family_id');
-    window.location.reload();
+    window.location.href = window.location.origin;
   };
 
   if (config.isMissing) return <div className="p-10 text-red-500 font-bold">Supabase Config Missing</div>;
@@ -213,12 +215,16 @@ const App: React.FC = () => {
                     <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <Loader2 size={8} className="animate-spin" /> SAVING...
                     </span>
+                  ) : !isInitialLoadDone ? (
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-black rounded-full flex items-center gap-1">
+                      <RefreshCcw size={8} className="animate-spin" /> SYNCING...
+                    </span>
                   ) : (
                     <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <CheckCircle size={8} /> LIVE
                     </span>
                   )}
-                  <span className="text-[10px] font-black text-slate-300 tracking-tight uppercase">ID: {familyId}</span>
+                  <span className="text-[10px] font-black text-slate-300">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
@@ -227,10 +233,10 @@ const App: React.FC = () => {
           </header>
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
-            {!isInitialLoadDone ? (
+            {!isInitialLoadDone && !expenses.length && !souvenirs.length && !packItems.length ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 로딩 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 불러오는 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">
@@ -238,7 +244,7 @@ const App: React.FC = () => {
                 {activeTab === 'rules' && <RulesView />}
                 {activeTab === 'settlement' && <SettlementView expenses={expenses} setExpenses={updateExpenses} />}
                 {activeTab === 'souvenir' && <SouvenirView souvenirs={souvenirs} setSouvenirs={updateSouvenirs} />}
-                {activeTab === 'ai' && <AIChatView />}
+                {activeTab === 'pack' && <PackView packItems={packItems} setPackItems={updatePackItems} />}
               </div>
             )}
           </main>
@@ -249,7 +255,7 @@ const App: React.FC = () => {
               { id: 'rules', label: '규칙', icon: ShieldCheck },
               { id: 'settlement', label: '정산', icon: Calculator },
               { id: 'souvenir', label: '기념품', icon: ShoppingBag },
-              { id: 'ai', label: 'AI', icon: MessageSquare },
+              { id: 'pack', label: '준비물', icon: Briefcase },
             ].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as TabType)} className={`flex items-center justify-center h-12 rounded-full transition-all duration-300 ${activeTab === tab.id ? 'bg-[#F2E96D] text-[#1675F2] px-6 shadow-lg' : 'text-white/50 w-12'}`}>
                 <tab.icon size={18} strokeWidth={activeTab === tab.id ? 3 : 2} />
