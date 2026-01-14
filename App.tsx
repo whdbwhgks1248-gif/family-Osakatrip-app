@@ -45,6 +45,7 @@ const App: React.FC = () => {
   
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
+  const lastLocalChangeAtRef = useRef<number>(0); // 로컬 수정 발생 시간 기록
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
@@ -66,7 +67,6 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS, p: safeP });
       lastServerDataRef.current = dataStr;
       
-      // 초기 로드 시에는 사용자 액션 중이 아님
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -92,11 +92,24 @@ const App: React.FC = () => {
       .channel(`realtime-${familyId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
-          // 중요: 사용자가 수정 중일 때는 서버 업데이트가 로컬을 덮어쓰지 않도록 함
-          if (isUserActionRef.current) return;
-
           const newData = payload.new as any;
           if (!newData) return;
+
+          // 1. 타임스탬프 기반 보호: 서버 데이터가 내 로컬 수정 시간보다 이전이라면 무시
+          const serverUpdatedAt = newData.updated_at ? new Date(newData.updated_at).getTime() : 0;
+          if (serverUpdatedAt < lastLocalChangeAtRef.current) {
+            console.log("Stale server update ignored.");
+            return;
+          }
+
+          // 2. 필드 누락 보호: 특정 필드가 아예 없다면(undefined) 덮어쓰지 않음
+          if (newData.expenses === undefined || newData.souvenirs === undefined || newData.pack_items === undefined) {
+            console.warn("Partial data payload ignored.");
+            return;
+          }
+
+          // 3. 사용자 수정 중에는 업데이트 무시 (이미 타임스탬프로 걸러지지만 이중 보안)
+          if (isUserActionRef.current) return;
 
           const dataStr = JSON.stringify({ 
             e: newData.expenses, 
@@ -121,27 +134,20 @@ const App: React.FC = () => {
     
     const currentDataStr = JSON.stringify({ e: newE, s: newS, p: newP });
     if (currentDataStr === lastServerDataRef.current) {
-      isUserActionRef.current = false; // 데이터가 같으면 수정 중 상태 해제
-      return;
-    }
-
-    // 데이터 유실 방지: 기존 데이터가 있는데 갑자기 빈 배열이 오면 무시
-    const lastData = JSON.parse(lastServerDataRef.current || '{"e":[],"s":[],"p":[]}');
-    if ((lastData.e.length > 0 || lastData.s.length > 0 || lastData.p.length > 0) && 
-        (newE.length === 0 && newS.length === 0 && newP.length === 0)) {
-      console.warn("비정상 데이터 유실 감지로 저장을 중단했습니다.");
+      isUserActionRef.current = false;
       return;
     }
 
     setIsSaving(true);
     setSaveError(null);
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase.from('family_state').upsert({ 
         family_id: familyId, 
         expenses: newE, 
         souvenirs: newS, 
         pack_items: newP,
-        updated_at: new Date().toISOString() 
+        updated_at: now 
       });
 
       if (error) {
@@ -155,7 +161,8 @@ const App: React.FC = () => {
       
       lastServerDataRef.current = currentDataStr;
       setLastSyncedAt(new Date());
-      // 저장 성공 후 수정 중 상태 해제
+      // 저장 성공 직후에는 로컬 변경 시간을 서버 업데이트 시간으로 동기화
+      lastLocalChangeAtRef.current = new Date(now).getTime();
       isUserActionRef.current = false;
     } catch (e) {
       console.error("Save error:", e);
@@ -169,23 +176,29 @@ const App: React.FC = () => {
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
-    }, 1000); // 사용자 입력을 기다리는 시간을 조금 더 안정적으로 확보
+    }, 1000);
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
-  const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
+  // 수정 발생 시 즉시 시간 기록
+  const markLocalChange = () => {
     isUserActionRef.current = true;
+    lastLocalChangeAtRef.current = Date.now();
+  };
+
+  const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
+    markLocalChange();
     setExpenses(updater);
   };
 
   const updateSouvenirs = (updater: React.SetStateAction<Souvenir[]>) => {
-    isUserActionRef.current = true;
+    markLocalChange();
     setSouvenirs(updater);
   };
 
   const updatePackItems = (updater: React.SetStateAction<PackItem[]>) => {
-    isUserActionRef.current = true;
+    markLocalChange();
     setPackItems(updater);
   };
 
