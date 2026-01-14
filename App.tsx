@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [tempCode, setTempCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   
@@ -65,6 +66,7 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS, p: safeP });
       lastServerDataRef.current = dataStr;
       
+      // 초기 로드 시에는 사용자 액션 중이 아님
       isUserActionRef.current = false; 
       setExpenses(safeE);
       setSouvenirs(safeS);
@@ -90,6 +92,9 @@ const App: React.FC = () => {
       .channel(`realtime-${familyId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
+          // 중요: 사용자가 수정 중일 때는 서버 업데이트가 로컬을 덮어쓰지 않도록 함
+          if (isUserActionRef.current) return;
+
           const newData = payload.new as any;
           if (!newData) return;
 
@@ -100,7 +105,6 @@ const App: React.FC = () => {
           });
           
           if (dataStr !== lastServerDataRef.current) {
-            isUserActionRef.current = false; 
             setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
             setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
             setPackItems(Array.isArray(newData.pack_items) ? newData.pack_items : []);
@@ -116,15 +120,21 @@ const App: React.FC = () => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
     
     const currentDataStr = JSON.stringify({ e: newE, s: newS, p: newP });
-    if (currentDataStr === lastServerDataRef.current) return;
+    if (currentDataStr === lastServerDataRef.current) {
+      isUserActionRef.current = false; // 데이터가 같으면 수정 중 상태 해제
+      return;
+    }
 
+    // 데이터 유실 방지: 기존 데이터가 있는데 갑자기 빈 배열이 오면 무시
     const lastData = JSON.parse(lastServerDataRef.current || '{"e":[],"s":[],"p":[]}');
-    if ((lastData.e.length > 0 || lastData.s.length > 0 || lastData.p.length > 0) && (newE.length === 0 && newS.length === 0 && newP.length === 0)) {
+    if ((lastData.e.length > 0 || lastData.s.length > 0 || lastData.p.length > 0) && 
+        (newE.length === 0 && newS.length === 0 && newP.length === 0)) {
       console.warn("비정상 데이터 유실 감지로 저장을 중단했습니다.");
       return;
     }
 
     setIsSaving(true);
+    setSaveError(null);
     try {
       const { error } = await supabase.from('family_state').upsert({ 
         family_id: familyId, 
@@ -133,9 +143,20 @@ const App: React.FC = () => {
         pack_items: newP,
         updated_at: new Date().toISOString() 
       });
-      if (error) throw error;
+
+      if (error) {
+        if (error.message.includes('column "pack_items" of relation "family_state" does not exist')) {
+          setSaveError("'pack_items' 컬럼이 DB에 없습니다. 관리자에게 문의하세요.");
+        } else {
+          setSaveError("저장 중 오류가 발생했습니다.");
+        }
+        throw error;
+      }
+      
       lastServerDataRef.current = currentDataStr;
       setLastSyncedAt(new Date());
+      // 저장 성공 후 수정 중 상태 해제
+      isUserActionRef.current = false;
     } catch (e) {
       console.error("Save error:", e);
     } finally {
@@ -148,8 +169,7 @@ const App: React.FC = () => {
 
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
-      isUserActionRef.current = false; 
-    }, 1200);
+    }, 1000); // 사용자 입력을 기다리는 시간을 조금 더 안정적으로 확보
 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
@@ -215,6 +235,10 @@ const App: React.FC = () => {
                     <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
                       <Loader2 size={8} className="animate-spin" /> SAVING...
                     </span>
+                  ) : saveError ? (
+                    <span className="px-2 py-0.5 bg-red-100 text-red-500 text-[9px] font-black rounded-full flex items-center gap-1">
+                      <AlertCircle size={8} /> SAVE ERROR
+                    </span>
                   ) : !isInitialLoadDone ? (
                     <span className="px-2 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-black rounded-full flex items-center gap-1">
                       <RefreshCcw size={8} className="animate-spin" /> SYNCING...
@@ -233,6 +257,12 @@ const App: React.FC = () => {
           </header>
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
+            {saveError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs font-bold animate-in fade-in slide-in-from-top-2">
+                <AlertCircle size={16} />
+                {saveError}
+              </div>
+            )}
             {!isInitialLoadDone && !expenses.length && !souvenirs.length && !packItems.length ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
