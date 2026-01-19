@@ -19,7 +19,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
 
   const safeSouvenirs = useMemo(() => Array.isArray(souvenirs) ? souvenirs : [], [souvenirs]);
 
-  // 이미지 압축 고도화: 텍스트 데이터 용량을 극한으로 줄임
   const compressImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -28,8 +27,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        
-        // 폰 화면에서 식별 가능한 최소 수준 (400px)으로 더 줄임
         const MAX_SIZE = 400;
         if (width > height) {
           if (width > MAX_SIZE) {
@@ -42,7 +39,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
             height = MAX_SIZE;
           }
         }
-        
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
@@ -51,8 +47,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
           ctx.imageSmoothingQuality = 'medium';
           ctx.drawImage(img, 0, 0, width, height);
         }
-        
-        // 0.3 화질: 용량을 더 획기적으로 줄여 여러 장 저장이 가능하게 함
         resolve(canvas.toDataURL('image/jpeg', 0.3));
       };
     });
@@ -87,7 +81,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
     if (item) {
       setEditingItem(item);
       setFormData({ 
-        title: item.title, 
+        title: item.title || '', 
         jpName: item.jpName || '', 
         note: item.note || '', 
         imageUrl: item.imageUrl || '', 
@@ -104,38 +98,36 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
     e.preventDefault();
     if (!formData.title.trim() || isCompressing) return;
 
+    const updatedData = {
+      title: formData.title.trim(),
+      jpName: (formData.jpName || '').trim(),
+      note: (formData.note || '').trim(),
+      imageUrl: formData.imageUrl,
+      linkUrl: (formData.linkUrl || '').trim()
+    };
+
     if (editingItem) {
-      setSouvenirs(prev => prev.map(s => s.id === editingItem.id ? { 
-        ...s, 
-        ...formData, 
-        title: formData.title.trim(),
-        jpName: (formData.jpName || '').trim(),
-        note: (formData.note || '').trim(),
-        imageUrl: formData.imageUrl,
-        linkUrl: (formData.linkUrl || '').trim()
-      } : s));
+      setSouvenirs(prev => Array.isArray(prev) ? prev.map(s => s.id === editingItem.id ? { ...s, ...updatedData } : s) : []);
     } else {
       const newItem: Souvenir = { 
         id: Date.now().toString(), 
-        title: formData.title.trim(), 
-        jpName: (formData.jpName || '').trim(), 
-        note: (formData.note || '').trim(), 
-        imageUrl: formData.imageUrl, 
-        linkUrl: (formData.linkUrl || '').trim(),
+        ...updatedData,
         isPurchased: false 
       };
-      setSouvenirs(prev => [newItem, ...prev]);
+      setSouvenirs(prev => [newItem, ...(Array.isArray(prev) ? prev : [])]);
     }
+    
+    // 상태 변경 후 즉시 폼 닫기
     setIsFormOpen(false);
   };
 
   const toggleStatus = (id: string) => {
-    setSouvenirs(prev => prev.map(s => s.id === id ? { ...s, isPurchased: !s.isPurchased } : s));
+    setSouvenirs(prev => Array.isArray(prev) ? prev.map(s => s.id === id ? { ...s, isPurchased: !s.isPurchased } : s) : []);
   };
 
   const removeSouvenir = (id: string) => {
     if (confirm("정말 삭제하시겠습니까?")) {
-      setSouvenirs(prev => prev.filter(s => s.id !== id));
+      setSouvenirs(prev => Array.isArray(prev) ? prev.filter(s => s.id !== id) : []);
     }
   };
 
@@ -173,7 +165,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 item.isPurchased ? 'opacity-40 grayscale-[0.8] border-transparent' : 'shadow-sm border-[#566873]/5'
               }`}
             >
-              <div className="relative aspect-square bg-[#F8F9FD] overflow-hidden group">
+              <div className="relative aspect-square bg-[#F8F9FD] overflow-hidden">
                 {item.imageUrl && !imageErrors[item.id] ? (
                   <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" onError={() => setImageErrors(p => ({...p, [item.id]: true}))} onClick={() => setPreviewImage(item.imageUrl!)} />
                 ) : (
@@ -192,7 +184,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 <h3 className={`text-[13px] font-black leading-tight line-clamp-1 ${item.isPurchased ? 'line-through text-slate-400' : 'text-[#566873]'}`}>{item.title}</h3>
                 {item.jpName && <p className="text-[10px] font-bold text-[#1675F2] line-clamp-1">{item.jpName}</p>}
                 {item.note && <p className="text-[10px] text-[#566873]/60 line-clamp-2 leading-tight h-[2.5em]">{item.note}</p>}
-                
                 {item.linkUrl && (
                   <a href={item.linkUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[9px] font-black text-[#1675F2] bg-blue-50 px-2 py-1 rounded-md border border-blue-100 mt-1">링크</a>
                 )}
@@ -203,8 +194,8 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
       </div>
 
       {isFormOpen && (
-        <div className="fixed inset-0 z-[550] bg-black/30 backdrop-blur-sm flex items-end justify-center p-4">
-          <div className="bg-white w-full max-w-[460px] rounded-[2.5rem] p-8 space-y-6 animate-in slide-in-from-bottom-full duration-300">
+        <div className="fixed inset-0 z-[550] bg-black/30 backdrop-blur-sm flex items-end justify-center p-4" onClick={() => setIsFormOpen(false)}>
+          <div className="bg-white w-full max-w-[460px] rounded-[2.5rem] p-8 space-y-6 animate-in slide-in-from-bottom-full duration-300" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-black text-[#566873]">{editingItem ? '정보 수정' : '쇼핑 도감 추가'}</h3>
               <button onClick={() => setIsFormOpen(false)}><X size={20} /></button>
@@ -217,25 +208,12 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
               </div>
               <textarea value={formData.note} onChange={(e) => setFormData(p => ({...p, note: e.target.value}))} placeholder="메모..." className="w-full bg-[#F8F9FD] border-none rounded-xl px-5 py-4 text-sm font-bold h-24 resize-none" />
-              
-              <button 
-                type="button" 
-                disabled={isCompressing}
-                onClick={() => fileInputRef.current?.click()} 
-                className={`w-full py-4 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                  isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:border-blue-200'
-                }`}
-              >
+              <button type="button" disabled={isCompressing} onClick={() => fileInputRef.current?.click()} className={`w-full py-4 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
                 {isCompressing ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                {isCompressing ? '이미지 최적화 중...' : (formData.imageUrl ? '사진 교체 (완료됨)' : '사진 추가')}
+                {isCompressing ? '최적화 중...' : (formData.imageUrl ? '사진 교체됨' : '사진 추가')}
               </button>
-
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-              <button 
-                type="submit" 
-                disabled={isCompressing || !formData.title.trim()}
-                className="w-full bg-[#1675F2] text-white py-5 rounded-xl font-black text-lg shadow-xl disabled:opacity-30 disabled:grayscale transition-all"
-              >
+              <button type="submit" disabled={isCompressing || !formData.title.trim()} className="w-full bg-[#1675F2] text-white py-5 rounded-xl font-black text-lg shadow-xl disabled:opacity-30">
                 {editingItem ? '수정 완료' : '추가하기'}
               </button>
             </form>
