@@ -54,12 +54,16 @@ const App: React.FC = () => {
     if (!supabase || fetchLock.current) return;
     
     fetchLock.current = true;
-    // 이미 데이터가 있다면 배경 로딩으로 처리 (사용자 경험 개선)
     if (!initialLoadCompletedRef.current) setIsLoading(true);
     
     const cleanId = id.trim().toUpperCase();
     try {
-      const { data, error } = await supabase.from('family_state').select('expenses, souvenirs, pack_items, updated_at').eq('family_id', cleanId).maybeSingle();
+      const { data, error } = await supabase
+        .from('family_state')
+        .select('expenses, souvenirs, pack_items, updated_at')
+        .eq('family_id', cleanId)
+        .maybeSingle();
+        
       if (error) throw error;
       
       const safeE = (data && Array.isArray(data.expenses)) ? data.expenses : [];
@@ -133,7 +137,6 @@ const App: React.FC = () => {
     setSaveError(null);
     try {
       const now = new Date().toISOString();
-      // 유연한 저장 구조: 특정 컬럼이 없어서 오류가 나는 경우를 대비해 단계적 저장 시도
       const payload: any = { 
         family_id: familyId, 
         expenses: newE, 
@@ -141,44 +144,40 @@ const App: React.FC = () => {
         updated_at: now 
       };
 
-      // pack_items는 오류 발생 가능성이 높으므로 조건부로 안전하게 처리
-      try {
-        const { error } = await supabase.from('family_state').upsert({
-          ...payload,
-          pack_items: newP
-        });
+      // pack_items를 포함하여 저장 시도
+      const { error } = await supabase.from('family_state').upsert({
+        ...payload,
+        pack_items: newP
+      });
 
-        if (error) {
-          // 컬럼 누락 에러라면 pack_items를 제외하고 다시 시도
-          if (error.message.includes('column "pack_items"')) {
-             const { error: retryError } = await supabase.from('family_state').upsert(payload);
-             if (retryError) throw retryError;
-             setSaveError("준비물 저장이 제한됨(DB문제)");
-          } else {
-            throw error;
-          }
+      if (error) {
+        if (error.message.includes('column "pack_items"')) {
+          const { error: retryError } = await supabase.from('family_state').upsert(payload);
+          if (retryError) throw retryError;
+        } else {
+          throw error;
         }
-      } catch (innerError) {
-        throw innerError;
       }
       
       lastServerDataRef.current = currentDataStr;
       setLastSyncedAt(new Date());
       lastLocalChangeAtRef.current = new Date(now).getTime();
       isUserActionRef.current = false;
+      setSaveError(null);
     } catch (e: any) {
       console.error("Save error:", e);
       setSaveError("저장 실패: 네트워크 확인 후 다시 시도해주세요.");
     } finally {
-      setTimeout(() => setIsSaving(false), 500);
+      setTimeout(() => setIsSaving(false), 300);
     }
   }, [familyId, isResetting]);
 
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
+    // 디바운스 시간을 800ms로 줄여서 더 기민하게 반응하도록 수정
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
-    }, 1200);
+    }, 800);
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
