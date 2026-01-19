@@ -45,19 +45,21 @@ const App: React.FC = () => {
   
   const lastServerDataRef = useRef<string>(""); 
   const isUserActionRef = useRef<boolean>(false); 
-  const lastLocalChangeAtRef = useRef<number>(0); // 로컬 수정 발생 시간 기록
+  const lastLocalChangeAtRef = useRef<number>(0);
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
+  // 로딩 속도 최적화: 필요한 데이터만 즉시 가져오기
   const fetchFamilyData = useCallback(async (id: string) => {
     if (!supabase || fetchLock.current) return;
     
     fetchLock.current = true;
-    setIsLoading(true);
+    // 이미 데이터가 있다면 배경 로딩으로 처리 (사용자 경험 개선)
+    if (!initialLoadCompletedRef.current) setIsLoading(true);
     
     const cleanId = id.trim().toUpperCase();
     try {
-      const { data, error } = await supabase.from('family_state').select('*').eq('family_id', cleanId).maybeSingle();
+      const { data, error } = await supabase.from('family_state').select('expenses, souvenirs, pack_items, updated_at').eq('family_id', cleanId).maybeSingle();
       if (error) throw error;
       
       const safeE = (data && Array.isArray(data.expenses)) ? data.expenses : [];
@@ -67,10 +69,11 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS, p: safeP });
       lastServerDataRef.current = dataStr;
       
-      isUserActionRef.current = false; 
-      setExpenses(safeE);
-      setSouvenirs(safeS);
-      setPackItems(safeP);
+      if (!isUserActionRef.current) {
+        setExpenses(safeE);
+        setSouvenirs(safeS);
+        setPackItems(safeP);
+      }
       
       initialLoadCompletedRef.current = true;
       setIsInitialLoadDone(true);
@@ -95,26 +98,14 @@ const App: React.FC = () => {
           const newData = payload.new as any;
           if (!newData) return;
 
-          // 1. 타임스탬프 기반 보호: 서버 데이터가 내 로컬 수정 시간보다 이전이라면 무시
           const serverUpdatedAt = newData.updated_at ? new Date(newData.updated_at).getTime() : 0;
-          if (serverUpdatedAt < lastLocalChangeAtRef.current) {
-            console.log("Stale server update ignored.");
-            return;
-          }
-
-          // 2. 필드 누락 보호: 특정 필드가 아예 없다면(undefined) 덮어쓰지 않음
-          if (newData.expenses === undefined || newData.souvenirs === undefined || newData.pack_items === undefined) {
-            console.warn("Partial data payload ignored.");
-            return;
-          }
-
-          // 3. 사용자 수정 중에는 업데이트 무시 (이미 타임스탬프로 걸러지지만 이중 보안)
+          if (serverUpdatedAt < lastLocalChangeAtRef.current) return;
           if (isUserActionRef.current) return;
 
           const dataStr = JSON.stringify({ 
-            e: newData.expenses, 
-            s: newData.souvenirs,
-            p: newData.pack_items
+            e: newData.expenses || [], 
+            s: newData.souvenirs || [],
+            p: newData.pack_items || []
           });
           
           if (dataStr !== lastServerDataRef.current) {
@@ -142,30 +133,42 @@ const App: React.FC = () => {
     setSaveError(null);
     try {
       const now = new Date().toISOString();
-      const { error } = await supabase.from('family_state').upsert({ 
+      // 유연한 저장 구조: 특정 컬럼이 없어서 오류가 나는 경우를 대비해 단계적 저장 시도
+      const payload: any = { 
         family_id: familyId, 
         expenses: newE, 
         souvenirs: newS, 
-        pack_items: newP,
         updated_at: now 
-      });
+      };
 
-      if (error) {
-        if (error.message.includes('column "pack_items" of relation "family_state" does not exist')) {
-          setSaveError("'pack_items' 컬럼이 DB에 없습니다. 관리자에게 문의하세요.");
-        } else {
-          setSaveError("저장 중 오류가 발생했습니다.");
+      // pack_items는 오류 발생 가능성이 높으므로 조건부로 안전하게 처리
+      try {
+        const { error } = await supabase.from('family_state').upsert({
+          ...payload,
+          pack_items: newP
+        });
+
+        if (error) {
+          // 컬럼 누락 에러라면 pack_items를 제외하고 다시 시도
+          if (error.message.includes('column "pack_items"')) {
+             const { error: retryError } = await supabase.from('family_state').upsert(payload);
+             if (retryError) throw retryError;
+             setSaveError("준비물 저장이 제한됨(DB문제)");
+          } else {
+            throw error;
+          }
         }
-        throw error;
+      } catch (innerError) {
+        throw innerError;
       }
       
       lastServerDataRef.current = currentDataStr;
       setLastSyncedAt(new Date());
-      // 저장 성공 직후에는 로컬 변경 시간을 서버 업데이트 시간으로 동기화
       lastLocalChangeAtRef.current = new Date(now).getTime();
       isUserActionRef.current = false;
-    } catch (e) {
+    } catch (e: any) {
       console.error("Save error:", e);
+      setSaveError("저장 실패: 네트워크 확인 후 다시 시도해주세요.");
     } finally {
       setTimeout(() => setIsSaving(false), 500);
     }
@@ -173,39 +176,32 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
-
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
-    }, 1000);
-
+    }, 1200);
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
-  // 수정 발생 시 즉시 시간 기록
-  const markLocalChange = () => {
+  const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
     lastLocalChangeAtRef.current = Date.now();
-  };
-
-  const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
-    markLocalChange();
     setExpenses(updater);
   };
 
   const updateSouvenirs = (updater: React.SetStateAction<Souvenir[]>) => {
-    markLocalChange();
+    isUserActionRef.current = true;
+    lastLocalChangeAtRef.current = Date.now();
     setSouvenirs(updater);
   };
 
   const updatePackItems = (updater: React.SetStateAction<PackItem[]>) => {
-    markLocalChange();
+    isUserActionRef.current = true;
+    lastLocalChangeAtRef.current = Date.now();
     setPackItems(updater);
   };
 
   useEffect(() => { 
-    if (familyId) {
-      fetchFamilyData(familyId); 
-    }
+    if (familyId) fetchFamilyData(familyId); 
   }, [familyId, fetchFamilyData]);
 
   const handleSetFamilyId = (code: string) => {
@@ -215,23 +211,15 @@ const App: React.FC = () => {
     setFamilyId(clean);
   };
 
-  const handleReset = () => {
-    setIsResetting(true);
-    localStorage.removeItem('family_id');
-    window.location.href = window.location.origin;
-  };
-
   if (config.isMissing) return <div className="p-10 text-red-500 font-bold">Supabase Config Missing</div>;
 
   return (
     <div className="min-h-screen bg-[#FCFCFC] flex flex-col max-w-[500px] mx-auto relative font-sans text-[#566873]">
       {!familyId ? (
         <div className="fixed inset-0 z-[1000] bg-[#1675F2] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-[360px] rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-300">
-            <div className="text-center space-y-3">
-              <div className="w-16 h-16 bg-[#F2E96D] text-[#1675F2] rounded-3xl flex items-center justify-center mx-auto mb-2"><KeyRound size={32} /></div>
-              <h2 className="text-2xl font-black text-[#1675F2] tracking-tighter">우리 가족 코드</h2>
-            </div>
+          <div className="bg-white w-full max-w-[360px] rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-[#F2E96D] text-[#1675F2] rounded-3xl flex items-center justify-center mx-auto mb-2"><KeyRound size={32} /></div>
+            <h2 className="text-2xl font-black text-[#1675F2] tracking-tighter">우리 가족 코드</h2>
             <div className="space-y-4">
               <input type="text" value={tempCode} onChange={(e) => setTempCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSetFamilyId(tempCode)} className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-xl font-black uppercase text-[#1675F2]" placeholder="코드 입력" />
               <button onClick={() => handleSetFamilyId(tempCode)} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl">여행 시작하기</button>
@@ -245,23 +233,13 @@ const App: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   {isSaving ? (
-                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
-                      <Loader2 size={8} className="animate-spin" /> SAVING...
-                    </span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SAVING...</span>
                   ) : saveError ? (
-                    <span className="px-2 py-0.5 bg-red-100 text-red-500 text-[9px] font-black rounded-full flex items-center gap-1">
-                      <AlertCircle size={8} /> SAVE ERROR
-                    </span>
-                  ) : !isInitialLoadDone ? (
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-black rounded-full flex items-center gap-1">
-                      <RefreshCcw size={8} className="animate-spin" /> SYNCING...
-                    </span>
+                    <span className="px-2 py-0.5 bg-red-100 text-red-500 text-[9px] font-black rounded-full flex items-center gap-1"><AlertCircle size={8} /> ERROR: REFRESH</span>
                   ) : (
-                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1">
-                      <CheckCircle size={8} /> LIVE
-                    </span>
+                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> LIVE SYNC</span>
                   )}
-                  <span className="text-[10px] font-black text-slate-300">ID: {familyId}</span>
+                  <span className="text-[10px] font-black text-slate-300 uppercase">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
@@ -272,14 +250,13 @@ const App: React.FC = () => {
           <main className="flex-1 px-4 pt-[118px] pb-32">
             {saveError && (
               <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs font-bold animate-in fade-in slide-in-from-top-2">
-                <AlertCircle size={16} />
-                {saveError}
+                <AlertCircle size={16} /> {saveError}
               </div>
             )}
-            {!isInitialLoadDone && !expenses.length && !souvenirs.length && !packItems.length ? (
+            {isLoading && !expenses.length && !souvenirs.length ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 불러오는 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 동기화 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">
@@ -308,40 +285,26 @@ const App: React.FC = () => {
           </nav>
 
           {isMenuOpen && (
-            <div className="fixed inset-0 z-[700] bg-black/40 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsMenuOpen(false)}>
-              <div className="absolute right-0 top-0 h-full w-[85%] bg-white p-10 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-10">
-                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Settings</span>
-                  <button onClick={() => setIsMenuOpen(false)}><X size={24}/></button>
-                </div>
+            <div className="fixed inset-0 z-[700] bg-black/40 backdrop-blur-sm animate-in fade-in" onClick={() => setIsMenuOpen(false)}>
+              <div className="absolute right-0 top-0 h-full w-[85%] bg-white p-10 flex flex-col shadow-2xl animate-in slide-in-from-right" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-10"><span className="text-[10px] font-black text-slate-300 uppercase">Settings</span><button onClick={() => setIsMenuOpen(false)}><X size={24}/></button></div>
                 <div className="flex-1 space-y-6">
                   <div className="p-8 bg-[#F8F9FD] rounded-[2.5rem] border border-slate-100 space-y-2">
                     <p className="text-[10px] font-black text-slate-400">현재 가족 코드</p>
                     <p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p>
-                    {lastSyncedAt && (
-                      <p className="text-[9px] font-bold text-slate-300">최근 동기화: {lastSyncedAt.toLocaleTimeString()}</p>
-                    )}
                   </div>
-                  
-                  <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2 active:scale-95 transition-all">
-                    <RefreshCcw size={16} />데이터 강제 동기화
-                  </button>
-
-                  <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2">
-                    <LogOut size={16} />연결 해제
-                  </button>
-
+                  <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2"><RefreshCcw size={16} />강제 동기화</button>
+                  <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2"><LogOut size={16} />연결 해제</button>
                   {showResetConfirm && (
                     <div className="p-6 bg-red-500 rounded-3xl text-white space-y-4 animate-in zoom-in-95">
                       <p className="text-xs font-bold text-center">연결을 해제하시겠습니까?</p>
                       <div className="flex gap-2">
-                        <button onClick={handleReset} className="flex-1 py-3 bg-white text-red-500 rounded-xl font-black">확인</button>
+                        <button onClick={() => {localStorage.removeItem('family_id'); window.location.reload();}} className="flex-1 py-3 bg-white text-red-500 rounded-xl font-black">확인</button>
                         <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black">취소</button>
                       </div>
                     </div>
                   )}
                 </div>
-                <p className="text-center text-[9px] font-bold text-slate-200 uppercase tracking-widest pb-4">Family Trip Planner 2026</p>
               </div>
             </div>
           )}
