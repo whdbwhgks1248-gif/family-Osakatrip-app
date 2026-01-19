@@ -19,7 +19,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
 
   const safeSouvenirs = useMemo(() => Array.isArray(souvenirs) ? souvenirs : [], [souvenirs]);
 
-  // 이미지 압축 함수: 서버 부하를 줄이고 저장 오류를 방지합니다.
+  // 초강력 이미지 압축: 텍스트 데이터 용량을 극한으로 줄여 저장 성공률을 높입니다.
   const compressImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -29,27 +29,32 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         let width = img.width;
         let height = img.height;
         
-        // 최대 해상도를 800px로 제한 (모바일 보기 충분)
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
+        // 모바일 최적화 해상도 (500px): 용량을 획기적으로 줄임
+        const MAX_SIZE = 500;
         if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
           }
         } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
           }
         }
         
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        // 화질 0.7로 압축하여 용량을 획기적으로 줄임
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
+        // 부드러운 이미지 리사이징 적용
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+        }
+        
+        // 퀄리티를 0.4로 낮추어 데이터 크기를 최소화 (Base64 저장 한계 극복)
+        resolve(canvas.toDataURL('image/jpeg', 0.4));
       };
     });
   };
@@ -57,13 +62,23 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert("파일이 너무 큽니다. 10MB 이하의 이미지를 선택해주세요.");
+        return;
+      }
       setIsCompressing(true);
       const reader = new FileReader();
       reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const compressed = await compressImage(base64);
-        setFormData(prev => ({ ...prev, imageUrl: compressed }));
-        setIsCompressing(false);
+        try {
+          const base64 = reader.result as string;
+          const compressed = await compressImage(base64);
+          setFormData(prev => ({ ...prev, imageUrl: compressed }));
+        } catch (err) {
+          console.error("Compression failed", err);
+          alert("이미지 최적화에 실패했습니다.");
+        } finally {
+          setIsCompressing(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -88,26 +103,26 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim()) return;
+    if (!formData.title.trim() || isCompressing) return;
 
     if (editingItem) {
       setSouvenirs(prev => prev.map(s => s.id === editingItem.id ? { 
         ...s, 
         ...formData, 
         title: formData.title.trim(),
-        jpName: formData.jpName.trim(),
-        note: formData.note.trim(),
-        imageUrl: formData.imageUrl.trim(),
-        linkUrl: formData.linkUrl.trim()
+        jpName: (formData.jpName || '').trim(),
+        note: (formData.note || '').trim(),
+        imageUrl: formData.imageUrl,
+        linkUrl: (formData.linkUrl || '').trim()
       } : s));
     } else {
       const newItem: Souvenir = { 
         id: Date.now().toString(), 
         title: formData.title.trim(), 
-        jpName: formData.jpName.trim(), 
-        note: formData.note.trim(), 
-        imageUrl: formData.imageUrl.trim(), 
-        linkUrl: formData.linkUrl.trim(),
+        jpName: (formData.jpName || '').trim(), 
+        note: (formData.note || '').trim(), 
+        imageUrl: formData.imageUrl, 
+        linkUrl: (formData.linkUrl || '').trim(),
         isPurchased: false 
       };
       setSouvenirs(prev => [newItem, ...prev]);
@@ -134,7 +149,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         </div>
       )}
 
-      {/* 헤더 섹션 - 소형화 */}
       <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-[#1675F2]/5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-[#1675F2] text-white rounded-xl flex items-center justify-center shadow-md"><ShoppingBag size={20} /></div>
@@ -146,7 +160,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         <button onClick={() => openForm()} className="w-11 h-11 bg-[#F2E96D] text-[#1675F2] rounded-xl flex items-center justify-center shadow-lg active:scale-90 transition-all"><Plus size={24} strokeWidth={3} /></button>
       </div>
 
-      {/* 2열 그리드 리스트 */}
       <div className="grid grid-cols-2 gap-3">
         {safeSouvenirs.length === 0 ? (
           <div className="col-span-2 text-center py-20 bg-white rounded-[2rem] border border-dashed border-[#566873]/10">
@@ -161,7 +174,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 item.isPurchased ? 'opacity-40 grayscale-[0.8] border-transparent' : 'shadow-sm border-[#566873]/5'
               }`}
             >
-              {/* 이미지 영역 (Aspect Ratio 1:1) */}
               <div className="relative aspect-square bg-[#F8F9FD] overflow-hidden group">
                 {item.imageUrl && !imageErrors[item.id] ? (
                   <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" onError={() => setImageErrors(p => ({...p, [item.id]: true}))} onClick={() => setPreviewImage(item.imageUrl!)} />
@@ -177,7 +189,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 </div>
               </div>
 
-              {/* 정보 영역 (최소화) */}
               <div className="p-3 space-y-1">
                 <h3 className={`text-[13px] font-black leading-tight line-clamp-1 ${item.isPurchased ? 'line-through text-slate-400' : 'text-[#566873]'}`}>{item.title}</h3>
                 {item.jpName && <p className="text-[10px] font-bold text-[#1675F2] line-clamp-1">{item.jpName}</p>}
@@ -192,7 +203,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         )}
       </div>
 
-      {/* 등록/수정 모달 */}
       {isFormOpen && (
         <div className="fixed inset-0 z-[550] bg-black/30 backdrop-blur-sm flex items-end justify-center p-4">
           <div className="bg-white w-full max-w-[460px] rounded-[2.5rem] p-8 space-y-6 animate-in slide-in-from-bottom-full duration-300">
@@ -213,19 +223,19 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
                 type="button" 
                 disabled={isCompressing}
                 onClick={() => fileInputRef.current?.click()} 
-                className={`w-full py-4 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${
-                  isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50'
+                className={`w-full py-4 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                  isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:border-blue-200'
                 }`}
               >
                 {isCompressing ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                {isCompressing ? '사진 최적화 중...' : (formData.imageUrl ? '사진 교체' : '사진 추가')}
+                {isCompressing ? '이미지 최적화 중...' : (formData.imageUrl ? '사진 교체 (완료됨)' : '사진 추가')}
               </button>
 
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
               <button 
                 type="submit" 
-                disabled={isCompressing}
-                className="w-full bg-[#1675F2] text-white py-5 rounded-xl font-black text-lg shadow-xl disabled:opacity-50"
+                disabled={isCompressing || !formData.title.trim()}
+                className="w-full bg-[#1675F2] text-white py-5 rounded-xl font-black text-lg shadow-xl disabled:opacity-30 disabled:grayscale transition-all"
               >
                 {editingItem ? '수정 완료' : '추가하기'}
               </button>
