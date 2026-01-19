@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3 } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3, CloudOff, CloudSync } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -17,7 +18,6 @@ const getSupabaseConfig = () => {
 };
 
 const config = getSupabaseConfig();
-// Fixed: anonKey was not defined in this scope. Accessing it via config.anonKey.
 const supabase = !config.isMissing ? createClient(config.url, config.anonKey) : null;
 
 type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'pack';
@@ -50,11 +50,12 @@ const App: React.FC = () => {
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
-  // 데이터 크기 계산 및 분석
+  const currentDataStr = useMemo(() => JSON.stringify({ e: expenses, s: souvenirs, p: packItems }), [expenses, souvenirs, packItems]);
+  const isOutOfSync = useMemo(() => currentDataStr !== lastServerDataRef.current, [currentDataStr]);
+  
   const currentDataSizeMB = useMemo(() => {
-    const dataStr = JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
-    return (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
-  }, [expenses, souvenirs, packItems]);
+    return (new Blob([currentDataStr]).size / (1024 * 1024)).toFixed(2);
+  }, [currentDataStr]);
 
   const itemSizes = useMemo(() => {
     return souvenirs.map(s => ({
@@ -67,7 +68,7 @@ const App: React.FC = () => {
     if (!supabase || fetchLock.current) return;
     
     fetchLock.current = true;
-    if (!initialLoadCompletedRef.current) setIsLoading(true);
+    setIsLoading(true);
     
     const cleanId = id.trim().toUpperCase();
     try {
@@ -86,141 +87,91 @@ const App: React.FC = () => {
       const dataStr = JSON.stringify({ e: safeE, s: safeS, p: safeP });
       lastServerDataRef.current = dataStr;
       
-      if (!isUserActionRef.current) {
-        setExpenses(safeE);
-        setSouvenirs(safeS);
-        setPackItems(safeP);
-      }
+      setExpenses(safeE);
+      setSouvenirs(safeS);
+      setPackItems(safeP);
       
       initialLoadCompletedRef.current = true;
       setIsInitialLoadDone(true);
       setLastSyncedAt(new Date());
+      setSaveError(null);
     } catch (e) { 
       console.error("Fetch error:", e);
-      setIsInitialLoadDone(true); 
-      initialLoadCompletedRef.current = true;
+      setSaveError("데이터를 불러오지 못했습니다.");
     } finally { 
       setIsLoading(false); 
       fetchLock.current = false;
     }
   }, []);
 
-  useEffect(() => {
-    if (!supabase || !familyId || !isInitialLoadDone) return;
+  const saveToSupabase = useCallback(async (forcedData?: {e: Expense[], s: Souvenir[], p: PackItem[]}) => {
+    if (!familyId || !supabase || !initialLoadCompletedRef.current) return;
     
-    const channel = supabase
-      .channel(`realtime-${familyId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
-        (payload) => {
-          const newData = payload.new as any;
-          if (!newData) return;
-
-          const serverUpdatedAt = newData.updated_at ? new Date(newData.updated_at).getTime() : 0;
-          if (serverUpdatedAt < lastLocalChangeAtRef.current) return;
-          if (isUserActionRef.current) return;
-
-          const dataStr = JSON.stringify({ 
-            e: newData.expenses || [], 
-            s: newData.souvenirs || [],
-            p: newData.pack_items || []
-          });
-          
-          if (dataStr !== lastServerDataRef.current) {
-            setExpenses(Array.isArray(newData.expenses) ? newData.expenses : []);
-            setSouvenirs(Array.isArray(newData.souvenirs) ? newData.souvenirs : []);
-            setPackItems(Array.isArray(newData.pack_items) ? newData.pack_items : []);
-            lastServerDataRef.current = dataStr;
-            setLastSyncedAt(new Date());
-          }
-        }
-      ).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [familyId, isInitialLoadDone]);
-
-  const saveToSupabase = useCallback(async (newE: Expense[], newS: Souvenir[], newP: PackItem[]) => {
-    if (!familyId || !supabase || !initialLoadCompletedRef.current || isResetting) return;
+    const targetE = forcedData ? forcedData.e : expenses;
+    const targetS = forcedData ? forcedData.s : souvenirs;
+    const targetP = forcedData ? forcedData.p : packItems;
     
-    const currentDataStr = JSON.stringify({ e: newE, s: newS, p: newP });
-    if (currentDataStr === lastServerDataRef.current) {
-      isUserActionRef.current = false;
-      return;
-    }
+    const dataStr = JSON.stringify({ e: targetE, s: targetS, p: targetP });
+    const sizeInMB = new Blob([dataStr]).size / (1024 * 1024);
 
-    const sizeInMB = new Blob([currentDataStr]).size / (1024 * 1024);
-    // 서버 절대 한계(10MB)에 근접하면 중단, 8MB까지는 위험 경고와 함께 시도
-    if (sizeInMB > 9.5) {
-      setSaveError(`서버 한계 초과(${sizeInMB.toFixed(1)}MB)! 사진 삭제 필수.`);
+    if (sizeInMB > 9.8) {
+      setSaveError(`저장 불가 (${sizeInMB.toFixed(1)}MB)! 8MB 이하로 줄여야 서버에 저장됩니다.`);
       setIsSaving(false);
       return;
     }
 
     setIsSaving(true);
-    setSaveError(null);
     try {
       const now = new Date().toISOString();
-      const payload: any = { 
-        family_id: familyId, 
-        expenses: newE, 
-        souvenirs: newS, 
-        updated_at: now 
-      };
-
       const { error } = await supabase.from('family_state').upsert({
-        ...payload,
-        pack_items: newP
+        family_id: familyId,
+        expenses: targetE,
+        souvenirs: targetS,
+        pack_items: targetP,
+        updated_at: now
       });
 
-      if (error) {
-        if (error.message.includes('payload too large') || error.code === '413') {
-           setSaveError("서버가 데이터를 거절했습니다. 사진을 더 삭제해주세요.");
-           throw error;
-        } else {
-          throw error;
-        }
-      }
+      if (error) throw error;
       
-      lastServerDataRef.current = currentDataStr;
+      lastServerDataRef.current = dataStr;
       setLastSyncedAt(new Date());
-      lastLocalChangeAtRef.current = new Date(now).getTime();
-      isUserActionRef.current = false;
       setSaveError(null);
+      isUserActionRef.current = false;
     } catch (e: any) {
       console.error("Save error:", e);
-      if (!saveError) setSaveError("저장 실패: 용량이 너무 크거나 네트워크 오류입니다.");
+      setSaveError("저장 실패! 용량이 너무 큽니다. 사진을 더 지워주세요.");
     } finally {
-      setTimeout(() => setIsSaving(false), 500);
+      setIsSaving(false);
     }
-  }, [familyId, isResetting]);
+  }, [familyId, expenses, souvenirs, packItems]);
 
+  // 변경 발생 시 자동 저장 (1.5초 뒤)
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
     const timer = setTimeout(() => {
-      saveToSupabase(expenses, souvenirs, packItems);
+      saveToSupabase();
     }, 1500);
     return () => clearTimeout(timer);
-  }, [expenses, souvenirs, packItems, saveToSupabase]);
+  }, [currentDataStr, saveToSupabase]);
 
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
-    lastLocalChangeAtRef.current = Date.now();
     setExpenses(updater);
   };
 
   const updateSouvenirs = (updater: React.SetStateAction<Souvenir[]>) => {
     isUserActionRef.current = true;
-    lastLocalChangeAtRef.current = Date.now();
     setSouvenirs(updater);
   };
 
   const updatePackItems = (updater: React.SetStateAction<PackItem[]>) => {
     isUserActionRef.current = true;
-    lastLocalChangeAtRef.current = Date.now();
     setPackItems(updater);
   };
 
   useEffect(() => { 
-    if (familyId) fetchFamilyData(familyId); 
-  }, [familyId, fetchFamilyData]);
+    if (familyId && !isInitialLoadDone) fetchFamilyData(familyId); 
+  }, [familyId, isInitialLoadDone, fetchFamilyData]);
 
   const handleSetFamilyId = (code: string) => {
     const clean = code.trim().toUpperCase();
@@ -251,27 +202,31 @@ const App: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   {isSaving ? (
-                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SAVING...</span>
-                  ) : saveError ? (
-                    <span className="px-2 py-0.5 bg-red-100 text-red-500 text-[9px] font-black rounded-full flex items-center gap-1"><AlertCircle size={8} /> ERROR: REFRESH</span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SYNCING...</span>
+                  ) : isOutOfSync ? (
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[9px] font-black rounded-full flex items-center gap-1"><CloudOff size={8} /> UNSAVED (TOO LARGE)</span>
                   ) : (
-                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> LIVE SYNC</span>
+                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> CLOUD SAVED</span>
                   )}
                   <span className="text-[10px] font-black text-slate-300 uppercase">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
-              <button onClick={() => setIsMenuOpen(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-full hover:bg-slate-100 transition-colors"><Menu size={20}/></button>
+              <button onClick={() => setIsMenuOpen(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-full hover:bg-slate-100 transition-colors relative">
+                <Menu size={20}/>
+                {isOutOfSync && <div className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border-2 border-white"></div>}
+              </button>
             </div>
           </header>
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
             {saveError && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-[11px] font-black animate-in fade-in slide-in-from-top-2">
-                <AlertCircle size={14} /> {saveError}
+              <div className="mb-4 p-4 bg-orange-50 border border-orange-100 rounded-2xl flex flex-col gap-2 text-orange-700 text-[11px] font-black animate-in shake duration-500">
+                <div className="flex items-center gap-2"><AlertCircle size={14} /> {saveError}</div>
+                <p className="font-medium opacity-80">현재 삭제한 내용이 서버에 저장되지 않고 있습니다. 용량 게이지가 파란색이 될 때까지 더 지워주세요.</p>
               </div>
             )}
-            {isLoading && !expenses.length && !souvenirs.length ? (
+            {isLoading ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
                 <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 동기화 중...</p>
@@ -308,23 +263,37 @@ const App: React.FC = () => {
                 <div className="flex justify-between items-center mb-10"><span className="text-[10px] font-black text-slate-300 uppercase">Settings</span><button onClick={() => setIsMenuOpen(false)}><X size={24}/></button></div>
                 
                 <div className="flex-1 space-y-6 overflow-y-auto no-scrollbar">
+                  {isOutOfSync && (
+                    <div className="p-5 bg-orange-50 border border-orange-100 rounded-3xl space-y-3">
+                      <div className="flex items-center gap-2 text-orange-600 font-black text-xs">
+                        <CloudOff size={16} /> 저장되지 않은 변경사항 있음
+                      </div>
+                      <p className="text-[10px] text-orange-500 font-bold leading-tight">현재 데이터가 너무 커서 서버 전송에 실패했습니다. 사진을 더 삭제하여 용량을 8MB 이하로 낮춰야 정상 저장됩니다.</p>
+                      <button 
+                        onClick={() => { if(confirm("저장되지 않은 모든 변경사항(사진 삭제 등)을 취소하고 서버에 있는 마지막 데이터로 되돌릴까요?")) fetchFamilyData(familyId!); }}
+                        className="w-full py-2.5 bg-white border border-orange-200 text-orange-600 rounded-xl text-[10px] font-black"
+                      >
+                        서버 데이터로 되돌리기 (초기화)
+                      </button>
+                    </div>
+                  )}
+
                   <div className="p-8 bg-[#F8F9FD] rounded-[2.5rem] border border-slate-100 space-y-2">
                     <p className="text-[10px] font-black text-slate-400 uppercase">현재 가족 코드</p>
                     <p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p>
                   </div>
 
-                  {/* 저장 용량 상태바 */}
                   <div className="p-6 bg-white rounded-3xl border border-slate-100 space-y-3">
                     <div className="flex justify-between items-end">
                       <div className="flex items-center gap-2 text-[#566873]">
                         <HardDrive size={16} />
                         <span className="text-xs font-black">저장 공간 사용량</span>
                       </div>
-                      <span className="text-[11px] font-black text-[#1675F2]">{currentDataSizeMB}MB / 8.0MB</span>
+                      <span className={`text-[11px] font-black ${Number(currentDataSizeMB) > 8 ? 'text-red-500' : 'text-[#1675F2]'}`}>{currentDataSizeMB}MB / 8.0MB</span>
                     </div>
                     <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full transition-all duration-500 ${Number(currentDataSizeMB) > 8 ? 'bg-red-500' : Number(currentDataSizeMB) > 5 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
+                        className={`h-full transition-all duration-500 ${Number(currentDataSizeMB) > 8 ? 'bg-red-500' : Number(currentDataSizeMB) > 6 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
                         style={{ width: `${Math.min((Number(currentDataSizeMB) / 8.0) * 100, 100)}%` }}
                       ></div>
                     </div>
@@ -345,10 +314,17 @@ const App: React.FC = () => {
                         ))}
                       </div>
                     )}
-                    <p className="text-[8px] text-slate-400 font-bold leading-tight">* 서버 절대 한계는 10MB입니다. 8MB를 넘으면 저장이 불가능할 수 있으니 무거운 사진을 삭제해 주세요.</p>
                   </div>
 
-                  <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2"><RefreshCcw size={16} />강제 동기화</button>
+                  <button 
+                    onClick={() => saveToSupabase()}
+                    disabled={isSaving || !isOutOfSync || Number(currentDataSizeMB) > 9}
+                    className="w-full py-5 bg-[#1675F2] text-white disabled:bg-slate-100 disabled:text-slate-300 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95"
+                  >
+                    {isSaving ? <Loader2 size={16} className="animate-spin" /> : <CloudSync size={16} />}
+                    즉시 동기화 실행
+                  </button>
+
                   <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2"><LogOut size={16} />연결 해제</button>
                   
                   {showResetConfirm && (
