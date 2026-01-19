@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -18,6 +17,7 @@ const getSupabaseConfig = () => {
 };
 
 const config = getSupabaseConfig();
+// Fixed: anonKey was not defined in this scope. Accessing it via config.anonKey.
 const supabase = !config.isMissing ? createClient(config.url, config.anonKey) : null;
 
 type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'pack';
@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showSizeDetails, setShowSizeDetails] = useState(false);
   
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -49,12 +50,18 @@ const App: React.FC = () => {
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
-  // 데이터 크기 계산 (MB 단위)
-  // Fix: useMemo must be imported from 'react' to be used here.
+  // 데이터 크기 계산 및 분석
   const currentDataSizeMB = useMemo(() => {
     const dataStr = JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
     return (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
   }, [expenses, souvenirs, packItems]);
+
+  const itemSizes = useMemo(() => {
+    return souvenirs.map(s => ({
+      title: s.title,
+      size: (new Blob([JSON.stringify(s)]).size / 1024).toFixed(1) + 'KB'
+    })).sort((a, b) => parseFloat(b.size) - parseFloat(a.size));
+  }, [souvenirs]);
 
   const fetchFamilyData = useCallback(async (id: string) => {
     if (!supabase || fetchLock.current) return;
@@ -139,10 +146,10 @@ const App: React.FC = () => {
       return;
     }
 
-    // 페이로드 크기 체크 (실제 서버 한계는 6~10MB지만 안전하게 4.5MB로 제한)
     const sizeInMB = new Blob([currentDataStr]).size / (1024 * 1024);
-    if (sizeInMB > 4.5) {
-      setSaveError(`용량 초과(${sizeInMB.toFixed(1)}MB)! 사진을 정리해주세요.`);
+    // 서버 절대 한계(10MB)에 근접하면 중단, 8MB까지는 위험 경고와 함께 시도
+    if (sizeInMB > 9.5) {
+      setSaveError(`서버 한계 초과(${sizeInMB.toFixed(1)}MB)! 사진 삭제 필수.`);
       setIsSaving(false);
       return;
     }
@@ -164,11 +171,8 @@ const App: React.FC = () => {
       });
 
       if (error) {
-        if (error.message.includes('column "pack_items"')) {
-          const { error: retryError } = await supabase.from('family_state').upsert(payload);
-          if (retryError) throw retryError;
-        } else if (error.message.includes('payload too large') || error.code === '413') {
-           setSaveError("서버 전송 용량이 너무 큽니다. 사진을 더 삭제해주세요.");
+        if (error.message.includes('payload too large') || error.code === '413') {
+           setSaveError("서버가 데이터를 거절했습니다. 사진을 더 삭제해주세요.");
            throw error;
         } else {
           throw error;
@@ -182,7 +186,7 @@ const App: React.FC = () => {
       setSaveError(null);
     } catch (e: any) {
       console.error("Save error:", e);
-      if (!saveError) setSaveError("저장 실패: 사진 용량이 크거나 네트워크 문제입니다.");
+      if (!saveError) setSaveError("저장 실패: 용량이 너무 크거나 네트워크 오류입니다.");
     } finally {
       setTimeout(() => setIsSaving(false), 500);
     }
@@ -316,15 +320,32 @@ const App: React.FC = () => {
                         <HardDrive size={16} />
                         <span className="text-xs font-black">저장 공간 사용량</span>
                       </div>
-                      <span className="text-[11px] font-black text-[#1675F2]">{currentDataSizeMB}MB / 4.5MB</span>
+                      <span className="text-[11px] font-black text-[#1675F2]">{currentDataSizeMB}MB / 8.0MB</span>
                     </div>
                     <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full transition-all duration-500 ${Number(currentDataSizeMB) > 4 ? 'bg-red-500' : Number(currentDataSizeMB) > 3 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
-                        style={{ width: `${Math.min((Number(currentDataSizeMB) / 4.5) * 100, 100)}%` }}
+                        className={`h-full transition-all duration-500 ${Number(currentDataSizeMB) > 8 ? 'bg-red-500' : Number(currentDataSizeMB) > 5 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
+                        style={{ width: `${Math.min((Number(currentDataSizeMB) / 8.0) * 100, 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-[9px] text-slate-400 font-bold">* 사진을 많이 올릴수록 용량이 늘어납니다.</p>
+                    <button 
+                      onClick={() => setShowSizeDetails(!showSizeDetails)}
+                      className="text-[9px] text-[#1675F2] font-black flex items-center gap-1 uppercase tracking-widest"
+                    >
+                      <BarChart3 size={10} /> {showSizeDetails ? '분석 닫기' : '아이템별 용량 분석'}
+                    </button>
+                    
+                    {showSizeDetails && (
+                      <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2 no-scrollbar animate-in slide-in-from-top-2">
+                        {itemSizes.map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-[10px] font-bold border-b border-slate-50 pb-1">
+                            <span className="text-slate-500 truncate mr-2">{item.title}</span>
+                            <span className="text-[#1675F2] shrink-0">{item.size}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[8px] text-slate-400 font-bold leading-tight">* 서버 절대 한계는 10MB입니다. 8MB를 넘으면 저장이 불가능할 수 있으니 무거운 사진을 삭제해 주세요.</p>
                   </div>
 
                   <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2"><RefreshCcw size={16} />강제 동기화</button>
