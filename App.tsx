@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -48,6 +48,13 @@ const App: React.FC = () => {
   const lastLocalChangeAtRef = useRef<number>(0);
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
+
+  // 데이터 크기 계산 (MB 단위)
+  // Fix: useMemo must be imported from 'react' to be used here.
+  const currentDataSizeMB = useMemo(() => {
+    const dataStr = JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
+    return (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
+  }, [expenses, souvenirs, packItems]);
 
   const fetchFamilyData = useCallback(async (id: string) => {
     if (!supabase || fetchLock.current) return;
@@ -132,9 +139,10 @@ const App: React.FC = () => {
       return;
     }
 
-    // 페이로드 크기 체크 (Base64가 너무 많으면 413 에러 발생)
-    if (currentDataStr.length > 5 * 1024 * 1024) { // 대략 5MB 제한
-      setSaveError("데이터 용량 초과! 사진을 몇 개 삭제해주세요.");
+    // 페이로드 크기 체크 (실제 서버 한계는 6~10MB지만 안전하게 4.5MB로 제한)
+    const sizeInMB = new Blob([currentDataStr]).size / (1024 * 1024);
+    if (sizeInMB > 4.5) {
+      setSaveError(`용량 초과(${sizeInMB.toFixed(1)}MB)! 사진을 정리해주세요.`);
       setIsSaving(false);
       return;
     }
@@ -160,7 +168,7 @@ const App: React.FC = () => {
           const { error: retryError } = await supabase.from('family_state').upsert(payload);
           if (retryError) throw retryError;
         } else if (error.message.includes('payload too large') || error.code === '413') {
-           setSaveError("사진 데이터가 너무 큽니다. 사진을 줄여주세요.");
+           setSaveError("서버 전송 용량이 너무 큽니다. 사진을 더 삭제해주세요.");
            throw error;
         } else {
           throw error;
@@ -174,15 +182,14 @@ const App: React.FC = () => {
       setSaveError(null);
     } catch (e: any) {
       console.error("Save error:", e);
-      if (!saveError) setSaveError("저장 실패: 네트워크가 불안정하거나 데이터가 너무 큽니다.");
+      if (!saveError) setSaveError("저장 실패: 사진 용량이 크거나 네트워크 문제입니다.");
     } finally {
       setTimeout(() => setIsSaving(false), 500);
     }
-  }, [familyId, isResetting, saveError]);
+  }, [familyId, isResetting]);
 
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
-    // 대기 시간을 조금 늘려 대용량 전송 시 부하를 줄임
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
     }, 1500);
@@ -256,8 +263,8 @@ const App: React.FC = () => {
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
             {saveError && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-xs font-bold animate-in fade-in slide-in-from-top-2">
-                <AlertCircle size={16} /> {saveError}
+              <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 text-[11px] font-black animate-in fade-in slide-in-from-top-2">
+                <AlertCircle size={14} /> {saveError}
               </div>
             )}
             {isLoading && !expenses.length && !souvenirs.length ? (
@@ -295,13 +302,34 @@ const App: React.FC = () => {
             <div className="fixed inset-0 z-[700] bg-black/40 backdrop-blur-sm animate-in fade-in" onClick={() => setIsMenuOpen(false)}>
               <div className="absolute right-0 top-0 h-full w-[85%] bg-white p-10 flex flex-col shadow-2xl animate-in slide-in-from-right" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-10"><span className="text-[10px] font-black text-slate-300 uppercase">Settings</span><button onClick={() => setIsMenuOpen(false)}><X size={24}/></button></div>
-                <div className="flex-1 space-y-6">
+                
+                <div className="flex-1 space-y-6 overflow-y-auto no-scrollbar">
                   <div className="p-8 bg-[#F8F9FD] rounded-[2.5rem] border border-slate-100 space-y-2">
-                    <p className="text-[10px] font-black text-slate-400">현재 가족 코드</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">현재 가족 코드</p>
                     <p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p>
                   </div>
+
+                  {/* 저장 용량 상태바 */}
+                  <div className="p-6 bg-white rounded-3xl border border-slate-100 space-y-3">
+                    <div className="flex justify-between items-end">
+                      <div className="flex items-center gap-2 text-[#566873]">
+                        <HardDrive size={16} />
+                        <span className="text-xs font-black">저장 공간 사용량</span>
+                      </div>
+                      <span className="text-[11px] font-black text-[#1675F2]">{currentDataSizeMB}MB / 4.5MB</span>
+                    </div>
+                    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-500 ${Number(currentDataSizeMB) > 4 ? 'bg-red-500' : Number(currentDataSizeMB) > 3 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
+                        style={{ width: `${Math.min((Number(currentDataSizeMB) / 4.5) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold">* 사진을 많이 올릴수록 용량이 늘어납니다.</p>
+                  </div>
+
                   <button onClick={() => { setIsMenuOpen(false); fetchFamilyData(familyId!); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2"><RefreshCcw size={16} />강제 동기화</button>
                   <button onClick={() => setShowResetConfirm(true)} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2"><LogOut size={16} />연결 해제</button>
+                  
                   {showResetConfirm && (
                     <div className="p-6 bg-red-500 rounded-3xl text-white space-y-4 animate-in zoom-in-95">
                       <p className="text-xs font-bold text-center">연결을 해제하시겠습니까?</p>
