@@ -49,7 +49,6 @@ const App: React.FC = () => {
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
-  // 로딩 속도 최적화: 필요한 데이터만 즉시 가져오기
   const fetchFamilyData = useCallback(async (id: string) => {
     if (!supabase || fetchLock.current) return;
     
@@ -133,6 +132,13 @@ const App: React.FC = () => {
       return;
     }
 
+    // 페이로드 크기 체크 (Base64가 너무 많으면 413 에러 발생)
+    if (currentDataStr.length > 5 * 1024 * 1024) { // 대략 5MB 제한
+      setSaveError("데이터 용량 초과! 사진을 몇 개 삭제해주세요.");
+      setIsSaving(false);
+      return;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -144,7 +150,6 @@ const App: React.FC = () => {
         updated_at: now 
       };
 
-      // pack_items를 포함하여 저장 시도
       const { error } = await supabase.from('family_state').upsert({
         ...payload,
         pack_items: newP
@@ -154,6 +159,9 @@ const App: React.FC = () => {
         if (error.message.includes('column "pack_items"')) {
           const { error: retryError } = await supabase.from('family_state').upsert(payload);
           if (retryError) throw retryError;
+        } else if (error.message.includes('payload too large') || error.code === '413') {
+           setSaveError("사진 데이터가 너무 큽니다. 사진을 줄여주세요.");
+           throw error;
         } else {
           throw error;
         }
@@ -166,18 +174,18 @@ const App: React.FC = () => {
       setSaveError(null);
     } catch (e: any) {
       console.error("Save error:", e);
-      setSaveError("저장 실패: 네트워크 확인 후 다시 시도해주세요.");
+      if (!saveError) setSaveError("저장 실패: 네트워크가 불안정하거나 데이터가 너무 큽니다.");
     } finally {
-      setTimeout(() => setIsSaving(false), 300);
+      setTimeout(() => setIsSaving(false), 500);
     }
-  }, [familyId, isResetting]);
+  }, [familyId, isResetting, saveError]);
 
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
-    // 디바운스 시간을 800ms로 줄여서 더 기민하게 반응하도록 수정
+    // 대기 시간을 조금 늘려 대용량 전송 시 부하를 줄임
     const timer = setTimeout(() => {
       saveToSupabase(expenses, souvenirs, packItems);
-    }, 800);
+    }, 1500);
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
