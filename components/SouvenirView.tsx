@@ -19,7 +19,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
 
   const safeSouvenirs = useMemo(() => Array.isArray(souvenirs) ? souvenirs : [], [souvenirs]);
 
-  // 초강력 이미지 압축: 텍스트 데이터 용량을 극한으로 줄여 저장 성공률을 높입니다.
+  // 이미지 압축 고도화: 텍스트 데이터 용량을 극한으로 줄임
   const compressImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -29,8 +29,8 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         let width = img.width;
         let height = img.height;
         
-        // 모바일 최적화 해상도 (500px): 용량을 획기적으로 줄임
-        const MAX_SIZE = 500;
+        // 폰 화면에서 식별 가능한 최소 수준 (400px)으로 더 줄임
+        const MAX_SIZE = 400;
         if (width > height) {
           if (width > MAX_SIZE) {
             height *= MAX_SIZE / width;
@@ -46,15 +46,14 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        // 부드러운 이미지 리사이징 적용
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
+          ctx.imageSmoothingQuality = 'medium';
           ctx.drawImage(img, 0, 0, width, height);
         }
         
-        // 퀄리티를 0.4로 낮추어 데이터 크기를 최소화 (Base64 저장 한계 극복)
-        resolve(canvas.toDataURL('image/jpeg', 0.4));
+        // 0.3 화질: 용량을 더 획기적으로 줄여 여러 장 저장이 가능하게 함
+        resolve(canvas.toDataURL('image/jpeg', 0.3));
       };
     });
   };
