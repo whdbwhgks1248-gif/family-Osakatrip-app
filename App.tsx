@@ -46,38 +46,97 @@ const App: React.FC = () => {
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
-  // [최적화] 전체 데이터 문자열화는 필요할 때만 수행하도록 변경
+  // 데이터 병합 함수: 서버 데이터와 로컬 데이터를 ID 기준으로 합침 (다중 사용자 지원)
+  const mergeData = useCallback((serverData: any) => {
+    const safeE = Array.isArray(serverData.expenses) ? serverData.expenses : [];
+    const safeS = Array.isArray(serverData.souvenirs) ? serverData.souvenirs : [];
+    const safeP = Array.isArray(serverData.pack_items) ? serverData.pack_items : [];
+
+    setExpenses(prev => {
+      const merged = [...prev];
+      safeE.forEach((se: Expense) => {
+        const idx = merged.findIndex(le => le.id === se.id);
+        if (idx === -1) merged.push(se);
+        else merged[idx] = se; // 서버 데이터가 최신이면 덮어씀
+      });
+      return merged.sort((a, b) => b.date - a.date);
+    });
+
+    setSouvenirs(prev => {
+      const merged = [...prev];
+      safeS.forEach((ss: Souvenir) => {
+        const idx = merged.findIndex(ls => ls.id === ss.id);
+        if (idx === -1) merged.push(ss);
+        else merged[idx] = ss;
+      });
+      return merged;
+    });
+
+    setPackItems(prev => {
+      const merged = [...prev];
+      safeP.forEach((sp: PackItem) => {
+        const idx = merged.findIndex(lp => lp.id === sp.id);
+        if (idx === -1) merged.push(sp);
+        else merged[idx] = sp;
+      });
+      return merged;
+    });
+
+    lastServerDataRef.current = JSON.stringify({ e: safeE, s: safeS, p: safeP });
+  }, []);
+
+  // [실시간 동기화 설정]
+  useEffect(() => {
+    if (!familyId || !supabase) return;
+
+    // 테이블 변경 감지 채널 구독
+    const channel = supabase
+      .channel(`sync-${familyId}`)
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'family_state', 
+          filter: `family_id=eq.${familyId}` 
+        },
+        (payload) => {
+          // 내가 저장 중이 아닐 때만 실시간 데이터 반영 (충돌 방지)
+          if (!isUserActionRef.current) {
+            console.log("Remote update detected, syncing...");
+            mergeData(payload.new);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [familyId, mergeData]);
+
   const getCurrentDataStr = useCallback(() => {
     return JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
   }, [expenses, souvenirs, packItems]);
 
-  // [최적화] 메뉴가 열려있을 때만 용량 계산 수행 (화면 멈춤 방지)
   const stats = useMemo(() => {
     if (!isMenuOpen) return { sizeMB: "0.00", items: [] };
-    
     const dataStr = getCurrentDataStr();
     const sizeMB = (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
     const items = (Array.isArray(souvenirs) ? souvenirs : []).map(s => ({
       title: s.title || '이름 없음',
       size: (new Blob([JSON.stringify(s)]).size / 1024).toFixed(1) + 'KB'
     })).sort((a, b) => parseFloat(b.size) - parseFloat(a.size));
-
     return { sizeMB, items };
   }, [isMenuOpen, souvenirs, getCurrentDataStr]);
 
-  const isOutOfSync = useMemo(() => {
-    // 실시간 비교는 가볍게 플래그로만 관리하거나 필요할 때만 수행
-    if (!initialLoadCompletedRef.current) return false;
-    return isUserActionRef.current;
-  }, [isUserActionRef.current]);
+  const isOutOfSync = useMemo(() => isUserActionRef.current, [isUserActionRef.current]);
 
   const fetchFamilyData = useCallback(async (id: string, isSilent = false) => {
     if (!supabase || fetchLock.current) return;
-    if (isUserActionRef.current && !isSilent) return;
-
     fetchLock.current = true;
-    const shouldShowLoading = !isSilent && expenses.length === 0 && souvenirs.length === 0;
-    if (shouldShowLoading) setIsLoading(true);
+    
+    if (!isSilent && expenses.length === 0) setIsLoading(true);
     
     try {
       const { data, error } = await supabase
@@ -88,15 +147,9 @@ const App: React.FC = () => {
         
       if (error) throw error;
       
-      const safeE = (data && Array.isArray(data.expenses)) ? data.expenses : [];
-      const safeS = (data && Array.isArray(data.souvenirs)) ? data.souvenirs : [];
-      const safeP = (data && Array.isArray(data.pack_items)) ? data.pack_items : [];
-      
-      lastServerDataRef.current = JSON.stringify({ e: safeE, s: safeS, p: safeP });
-      
-      setExpenses(safeE);
-      setSouvenirs(safeS);
-      setPackItems(safeP);
+      if (data) {
+        mergeData(data);
+      }
       
       initialLoadCompletedRef.current = true;
       setIsInitialLoadDone(true);
@@ -108,17 +161,16 @@ const App: React.FC = () => {
       setIsLoading(false); 
       fetchLock.current = false;
     }
-  }, [expenses.length, souvenirs.length]);
+  }, [expenses.length, mergeData]);
 
   const saveToSupabase = useCallback(async () => {
-    if (!familyId || !supabase || !initialLoadCompletedRef.current) return;
+    if (!familyId || !supabase || !initialLoadCompletedRef.current || isSaving) return;
     
     const dataStr = getCurrentDataStr();
     const sizeInMB = new Blob([dataStr]).size / (1024 * 1024);
 
     if (sizeInMB > 9.8) {
-      setSaveError(`저장 용량 초과 (${sizeInMB.toFixed(1)}MB)! 사진을 더 삭제해야 저장됩니다.`);
-      setIsSaving(false);
+      setSaveError(`용량 초과 (${sizeInMB.toFixed(1)}MB)! 사진을 줄여주세요.`);
       return;
     }
 
@@ -136,21 +188,21 @@ const App: React.FC = () => {
       
       lastServerDataRef.current = dataStr;
       setSaveError(null);
-      isUserActionRef.current = false; // 저장 성공 시에만 플래그 해제
+      isUserActionRef.current = false; // 저장 성공 시 작업 플래그 해제 (이제 실시간 업데이트 수신 가능)
     } catch (e: any) {
       console.error("Save error:", e);
-      setSaveError("서버 저장 실패! 용량이 너무 큽니다.");
+      setSaveError("서버 저장 실패! 네트워크를 확인해주세요.");
     } finally {
       setIsSaving(false);
     }
-  }, [familyId, expenses, souvenirs, packItems, getCurrentDataStr]);
+  }, [familyId, expenses, souvenirs, packItems, getCurrentDataStr, isSaving]);
 
-  // 변경 감지 시 1초 후 자동 저장
+  // 디바운스 자동 저장
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
     const timer = setTimeout(() => {
       saveToSupabase();
-    }, 1000);
+    }, 1500); // 1.5초로 약간 늘려 동시 작업 안정성 확보
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
@@ -179,12 +231,12 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#FCFCFC] flex flex-col max-w-[500px] mx-auto relative font-sans text-[#566873]">
       {!familyId ? (
         <div className="fixed inset-0 z-[1000] bg-[#1675F2] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-[360px] rounded-[3rem] p-10 shadow-2xl space-y-8 text-center">
+          <div className="bg-white w-full max-w-[360px] rounded-[3rem] p-10 shadow-2xl space-y-8 text-center animate-in zoom-in-95 duration-300">
             <div className="w-16 h-16 bg-[#F2E96D] text-[#1675F2] rounded-3xl flex items-center justify-center mx-auto mb-2"><KeyRound size={32} /></div>
             <h2 className="text-2xl font-black text-[#1675F2] tracking-tighter">우리 가족 코드</h2>
             <div className="space-y-4">
-              <input type="text" value={tempCode} onChange={(e) => setTempCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && familyId === null && setFamilyId(tempCode.toUpperCase())} className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-xl font-black uppercase text-[#1675F2]" placeholder="코드 입력" />
-              <button onClick={() => { if(tempCode.trim()) setFamilyId(tempCode.toUpperCase()); }} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl">여행 시작하기</button>
+              <input type="text" value={tempCode} onChange={(e) => setTempCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && familyId === null && setFamilyId(tempCode.trim().toUpperCase())} className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-5 text-center text-xl font-black uppercase text-[#1675F2]" placeholder="코드 입력" />
+              <button onClick={() => { if(tempCode.trim()) setFamilyId(tempCode.trim().toUpperCase()); }} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black shadow-xl active:scale-95 transition-all">여행 시작하기</button>
             </div>
           </div>
         </div>
@@ -199,9 +251,9 @@ const App: React.FC = () => {
                   ) : isOutOfSync ? (
                     <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[9px] font-black rounded-full flex items-center gap-1"><CloudOff size={8} /> PENDING SAVE</span>
                   ) : (
-                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> CLOUD SAVED</span>
+                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> CLOUD SYNCED</span>
                   )}
-                  <span className="text-[10px] font-black text-slate-300 uppercase">ID: {familyId}</span>
+                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
@@ -214,7 +266,7 @@ const App: React.FC = () => {
           
           <main className="flex-1 px-4 pt-[118px] pb-32">
             {saveError && (
-              <div className="mb-4 p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-3 text-orange-700 text-[11px] font-black">
+              <div className="mb-4 p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-3 text-orange-700 text-[11px] font-black animate-in slide-in-from-top-2">
                 <AlertCircle size={14} /> {saveError}
               </div>
             )}
@@ -222,7 +274,7 @@ const App: React.FC = () => {
             {isLoading && expenses.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">데이터 로딩 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">실시간 동기화 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-300">
@@ -290,7 +342,7 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  <button onClick={() => fetchFamilyData(familyId!, false)} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2">
+                  <button onClick={() => { fetchFamilyData(familyId!, false); setIsMenuOpen(false); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2">
                     <RefreshCcw size={16} />강제 새로고침
                   </button>
 
