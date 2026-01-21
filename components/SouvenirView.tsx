@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { Souvenir } from '../types';
-import { ShoppingBag, Plus, CheckCircle2, Circle, Trash2, Gift, Image as ImageIcon, X, Link2, Pencil, Loader2 } from 'lucide-react';
+import { ShoppingBag, Plus, CheckCircle2, Circle, Trash2, Gift, Image as ImageIcon, X, Link2, Pencil, Loader2, Languages } from 'lucide-react';
 
 interface SouvenirViewProps {
   souvenirs: Souvenir[];
@@ -133,7 +133,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-24 relative">
+    <div className="space-y-5 animate-in fade-in duration-500 pb-24 relative">
       {previewImage && (
         <div className="fixed inset-0 z-[600] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6" onClick={() => setPreviewImage(null)}>
           <button className="absolute top-8 right-8 text-white"><X size={24} /></button>
@@ -141,66 +141,103 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         </div>
       )}
 
-      <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-[#1675F2]/5 flex items-center justify-between">
+      {/* 헤더 바 */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-[#566873]/5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#1675F2] text-white rounded-xl flex items-center justify-center shadow-md"><ShoppingBag size={20} /></div>
+          <div className="w-10 h-10 bg-[#1675F2] text-white rounded-2xl flex items-center justify-center shadow-lg"><ShoppingBag size={20} /></div>
           <div>
-            <h2 className="text-lg font-black text-[#566873] tracking-tight">쇼핑 도감</h2>
-            <p className="text-[9px] text-[#1675F2] font-black uppercase tracking-widest">WISH LIST</p>
+            <h2 className="text-lg font-black text-[#1675F2] tracking-tighter">쇼핑 도감</h2>
+            <p className="text-[10px] text-slate-300 font-black uppercase tracking-widest">Bucket List</p>
           </div>
         </div>
-        <button onClick={() => openForm()} className="w-11 h-11 bg-[#F2E96D] text-[#1675F2] rounded-xl flex items-center justify-center shadow-lg active:scale-90 transition-all"><Plus size={24} strokeWidth={3} /></button>
+        <button onClick={() => openForm()} className="h-11 px-5 bg-[#F2E96D] text-[#1675F2] rounded-2xl flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all">
+          <Plus size={18} strokeWidth={3} />
+          <span className="text-xs font-black">추가</span>
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 items-stretch">
+      {/* 그리드 컨테이너: items-start로 카드 높이 불일치 문제 해결 */}
+      <div className="grid grid-cols-2 gap-4 items-start">
         {safeSouvenirs.length === 0 ? (
-          <div className="col-span-2 text-center py-20 bg-white rounded-[2rem] border border-dashed border-[#566873]/10">
-            <Gift className="mx-auto mb-3 opacity-10 text-[#566873]" size={40} />
-            <p className="text-[11px] font-black text-[#566873]/30 uppercase tracking-widest">목록이 비어있습니다</p>
+          <div className="col-span-2 text-center py-24 bg-white rounded-[2.5rem] border border-dashed border-[#566873]/10">
+            <Gift className="mx-auto mb-4 opacity-10 text-[#566873]" size={48} />
+            <p className="text-[11px] font-black text-[#566873]/30 uppercase tracking-[0.3em]">목록이 비어있습니다</p>
           </div>
         ) : (
           safeSouvenirs.map(item => (
             <div 
               key={item.id} 
-              className={`bg-white rounded-[2rem] border overflow-hidden flex flex-col relative transition-all duration-300 ${
-                item.isPurchased ? 'opacity-40 grayscale-[0.8] border-transparent' : 'shadow-sm border-[#566873]/5'
+              className={`group bg-white rounded-[2rem] border transition-all duration-300 flex flex-col relative overflow-hidden ${
+                item.isPurchased 
+                  ? 'opacity-40 grayscale-[0.6] border-slate-100 bg-slate-50' 
+                  : 'shadow-md border-[#566873]/5 hover:shadow-xl hover:-translate-y-1'
               }`}
             >
-              <div className="relative aspect-square bg-[#F8F9FD] overflow-hidden">
+              {/* 이미지 영역 */}
+              <div className="relative aspect-square overflow-hidden bg-slate-50">
                 {item.imageUrl && !imageErrors[item.id] ? (
-                  <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" onError={() => setImageErrors(p => ({...p, [item.id]: true}))} onClick={() => setPreviewImage(item.imageUrl!)} />
+                  <img 
+                    src={item.imageUrl} 
+                    alt={item.title} 
+                    className="w-full h-full object-cover" 
+                    onError={() => setImageErrors(p => ({...p, [item.id]: true}))} 
+                    onClick={() => setPreviewImage(item.imageUrl!)} 
+                  />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[#566873]/10"><ImageIcon size={32} /></div>
+                  <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={40} strokeWidth={1} /></div>
                 )}
-                <button onClick={() => toggleStatus(item.id)} className="absolute top-3 left-3 w-8 h-8 rounded-full bg-white/90 backdrop-blur shadow-sm flex items-center justify-center text-[#1675F2] z-10">
-                  {item.isPurchased ? <CheckCircle2 size={18} strokeWidth={3} /> : <Circle size={18} className="text-slate-200" strokeWidth={3} />}
-                </button>
-                <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
-                  <button onClick={() => openForm(item)} className="w-8 h-8 rounded-full bg-white/90 backdrop-blur shadow-sm flex items-center justify-center text-slate-400 hover:text-[#1675F2]"><Pencil size={14} /></button>
-                  <button onClick={() => removeSouvenir(item.id)} className="w-8 h-8 rounded-full bg-white/90 backdrop-blur shadow-sm flex items-center justify-center text-slate-400 hover:text-red-400"><Trash2 size={14} /></button>
+                
+                {/* 우측 상단 관리 버튼 (Hover 시 더 선명하게) */}
+                <div className="absolute top-3 right-3 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => openForm(item)} className="w-7 h-7 rounded-full bg-white/90 text-slate-400 flex items-center justify-center shadow-sm hover:text-[#1675F2]"><Pencil size={12} /></button>
+                  <button onClick={() => removeSouvenir(item.id)} className="w-7 h-7 rounded-full bg-white/90 text-slate-400 flex items-center justify-center shadow-sm hover:text-red-500"><Trash2 size={12} /></button>
                 </div>
+
+                {/* 구매 완료 체크 표시 */}
+                <button 
+                  onClick={() => toggleStatus(item.id)} 
+                  className={`absolute bottom-3 left-3 px-3 py-1.5 rounded-full backdrop-blur-md flex items-center gap-1.5 transition-all shadow-lg ${
+                    item.isPurchased 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-white/90 text-[#1675F2] border border-blue-50'
+                  }`}
+                >
+                  {item.isPurchased ? <CheckCircle2 size={14} strokeWidth={3} /> : <Circle size={14} strokeWidth={3} />}
+                  <span className="text-[10px] font-black">{item.isPurchased ? '구매완료' : '구매전'}</span>
+                </button>
               </div>
 
-              {/* 텍스트 영역: min-height를 설정하여 옆 카드와 제목 위치를 맞춤 */}
-              <div className="p-4 flex-1 flex flex-col space-y-1.5 min-h-[110px]">
-                <h3 className={`text-[14px] font-black leading-tight line-clamp-2 ${item.isPurchased ? 'line-through text-slate-400' : 'text-[#566873]'}`}>
+              {/* 텍스트 정보 영역: 가변 높이 */}
+              <div className="p-4 space-y-2">
+                <h3 className={`text-[14px] font-black leading-tight break-all ${item.isPurchased ? 'line-through text-slate-400' : 'text-[#566873]'}`}>
                   {item.title}
                 </h3>
                 
+                {/* 일본어 명칭 태그 스타일 */}
                 {item.jpName && (
-                  <p className="text-[11px] font-bold text-[#1675F2] line-clamp-1">
-                    {item.jpName}
-                  </p>
+                  <div className="inline-flex items-center gap-1 bg-[#F2E96D]/30 border border-[#F2E96D]/50 px-2 py-1 rounded-lg">
+                    <Languages size={10} className="text-[#1675F2]" />
+                    <span className="text-[10px] font-black text-[#1675F2] tracking-tighter">{item.jpName}</span>
+                  </div>
                 )}
                 
-                {/* 줄바꿈(pre-wrap) 적용 및 가독성 개선 */}
-                <div className={`text-[10px] leading-relaxed break-words whitespace-pre-wrap flex-1 ${item.isPurchased ? 'text-slate-300' : 'text-[#566873]/60'}`}>
-                  {item.note || <span className="opacity-0">설명 없음</span>}
-                </div>
+                {/* 설명 영역: 내용이 있을 때만 메모지 스타일로 표시 */}
+                {item.note && (
+                  <div className={`text-[10px] leading-relaxed p-3 rounded-xl border border-[#566873]/5 whitespace-pre-wrap break-words ${
+                    item.isPurchased ? 'bg-slate-100 text-slate-300' : 'bg-[#F8F9FD] text-[#566873]/70'
+                  }`}>
+                    {item.note}
+                  </div>
+                )}
 
                 {item.linkUrl && (
-                  <a href={item.linkUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[9px] font-black text-[#1675F2] bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 self-start mt-1 transition-colors hover:bg-blue-100">
-                    <Link2 size={10} /> 링크
+                  <a 
+                    href={item.linkUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="inline-flex items-center gap-1 text-[9px] font-black text-[#1675F2] hover:underline"
+                  >
+                    <Link2 size={10} /> 참고 링크 보기
                   </a>
                 )}
               </div>
@@ -209,42 +246,52 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         )}
       </div>
 
+      {/* 등록/수정 모달 */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-[550] bg-black/30 backdrop-blur-sm flex items-end justify-center p-4" onClick={() => setIsFormOpen(false)}>
-          <div className="bg-white w-full max-w-[460px] rounded-[2.5rem] p-8 space-y-6 animate-in slide-in-from-bottom-full duration-300" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[550] bg-black/40 backdrop-blur-md flex items-end justify-center p-4" onClick={() => setIsFormOpen(false)}>
+          <div className="bg-white w-full max-w-[460px] rounded-[3rem] p-8 space-y-8 animate-in slide-in-from-bottom-full duration-500" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-[#566873]">{editingItem ? '정보 수정' : '쇼핑 도감 추가'}</h3>
-              <button onClick={() => setIsFormOpen(false)}><X size={20} /></button>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#F2E96D] text-[#1675F2] rounded-2xl flex items-center justify-center shadow-sm"><ShoppingBag size={20} /></div>
+                <h3 className="text-xl font-black text-[#566873] tracking-tighter">{editingItem ? '상품 수정' : '위시리스트 추가'}</h3>
+              </div>
+              <button onClick={() => setIsFormOpen(false)} className="w-10 h-10 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center transition-colors hover:bg-slate-100"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">상품명 (한글)</label>
-                <input type="text" value={formData.title} onChange={(e) => setFormData(p => ({...p, title: e.target.value}))} placeholder="예: 로토 안약" className="w-full bg-[#F8F9FD] border-none rounded-xl px-5 py-4 text-sm font-bold" />
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">상품명 (한글)</label>
+                <input type="text" value={formData.title} onChange={(e) => setFormData(p => ({...p, title: e.target.value}))} placeholder="무엇을 살까요?" className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[#1675F2]" />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">일본어 명칭 (점원 제시용)</label>
-                <input type="text" value={formData.jpName} onChange={(e) => setFormData(p => ({...p, jpName: e.target.value}))} placeholder="예: ロート養潤水" className="w-full bg-[#F8F9FD] border-none rounded-xl px-5 py-4 text-sm font-bold" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">참고 링크</label>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">일본어 명칭 (점원 제시용)</label>
                 <div className="relative">
-                  <input type="url" value={formData.linkUrl} onChange={(e) => setFormData(p => ({...p, linkUrl: e.target.value}))} placeholder="https://..." className="w-full bg-[#F8F9FD] border-none rounded-xl pl-12 pr-5 py-4 text-sm font-bold" />
-                  <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                  <input type="text" value={formData.jpName} onChange={(e) => setFormData(p => ({...p, jpName: e.target.value}))} placeholder="현지 명칭 입력" className="w-full bg-[#F1F2F0] border-none rounded-2xl pl-12 pr-6 py-4 text-sm font-bold focus:ring-2 focus:ring-[#1675F2]" />
+                  <Languages className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">상세 메모 (줄바꿈 가능)</label>
-                <textarea value={formData.note} onChange={(e) => setFormData(p => ({...p, note: e.target.value}))} placeholder="• 수량: 2개&#10;• 특징: 자기전 사용" className="w-full bg-[#F8F9FD] border-none rounded-xl px-5 py-4 text-sm font-bold h-32 resize-none leading-relaxed" />
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">상세 메모 (줄바꿈 가능)</label>
+                <textarea value={formData.note} onChange={(e) => setFormData(p => ({...p, note: e.target.value}))} placeholder="수량, 가격, 특징 등..." className="w-full bg-[#F1F2F0] border-none rounded-2xl px-6 py-4 text-sm font-bold h-32 resize-none leading-relaxed focus:ring-2 focus:ring-[#1675F2]" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" disabled={isCompressing} onClick={() => fileInputRef.current?.click()} className={`py-4 border-2 border-dashed rounded-2xl text-xs font-black flex items-center justify-center gap-2 transition-all ${isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-[#1675F2]/20 text-[#1675F2] hover:bg-blue-50'}`}>
+                  {isCompressing ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                  {formData.imageUrl ? '사진 변경' : '사진 추가'}
+                </button>
+                <div className="relative">
+                  <input type="url" value={formData.linkUrl} onChange={(e) => setFormData(p => ({...p, linkUrl: e.target.value}))} placeholder="링크(선택)" className="w-full h-full bg-[#F1F2F0] border-none rounded-2xl px-6 text-xs font-bold focus:ring-2 focus:ring-[#1675F2]" />
+                  <Link2 className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
+                </div>
               </div>
               
-              <button type="button" disabled={isCompressing} onClick={() => fileInputRef.current?.click()} className={`w-full py-4 border-2 border-dashed rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${isCompressing ? 'bg-slate-50 border-slate-200 text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}>
-                {isCompressing ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                {isCompressing ? '최적화 중...' : (formData.imageUrl ? '사진 교체됨' : '사진 추가')}
-              </button>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
               
-              <button type="submit" disabled={isCompressing || !formData.title.trim()} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black text-lg shadow-xl disabled:opacity-30 transition-all active:scale-95">
-                {editingItem ? '수정 완료' : '추가하기'}
+              <button type="submit" disabled={isCompressing || !formData.title.trim()} className="w-full bg-[#1675F2] text-white py-5 rounded-2xl font-black text-lg shadow-xl shadow-blue-100 disabled:opacity-30 transition-all active:scale-95">
+                {editingItem ? '수정 내용 저장' : '위시리스트 등록'}
               </button>
             </form>
           </div>
