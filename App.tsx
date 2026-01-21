@@ -33,7 +33,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSizeDetails, setShowSizeDetails] = useState(false);
   
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
@@ -46,50 +45,41 @@ const App: React.FC = () => {
   const initialLoadCompletedRef = useRef<boolean>(false);
   const fetchLock = useRef<boolean>(false);
 
-  // 데이터 병합 함수: 서버 데이터와 로컬 데이터를 ID 기준으로 합침 (다중 사용자 지원)
-  const mergeData = useCallback((serverData: any) => {
+  // 고유 ID를 기반으로 데이터를 병합하는 함수 (중요: 데이터 유실 방지)
+  const mergeCollection = <T extends { id: string }>(local: T[], server: T[]): T[] => {
+    const merged = [...local];
+    server.forEach(serverItem => {
+      const exists = merged.find(localItem => localItem.id === serverItem.id);
+      if (!exists) {
+        // 내 리스트에 없는 항목(다른 사람이 추가한 것)만 추가
+        merged.push(serverItem);
+      } else {
+        // 이미 있는 항목이라면? 
+        // 실시간 업데이트의 경우 서버가 최신이므로 서버 데이터로 동기화 (단, 내가 수정 중인 항목이 아닐 때만 - 이 앱은 항목 단위 편집이므로 ID 일치 시 교체)
+        const idx = merged.findIndex(m => m.id === serverItem.id);
+        merged[idx] = serverItem;
+      }
+    });
+    return merged;
+  };
+
+  const mergeAllData = useCallback((serverData: any) => {
     const safeE = Array.isArray(serverData.expenses) ? serverData.expenses : [];
     const safeS = Array.isArray(serverData.souvenirs) ? serverData.souvenirs : [];
     const safeP = Array.isArray(serverData.pack_items) ? serverData.pack_items : [];
 
-    setExpenses(prev => {
-      const merged = [...prev];
-      safeE.forEach((se: Expense) => {
-        const idx = merged.findIndex(le => le.id === se.id);
-        if (idx === -1) merged.push(se);
-        else merged[idx] = se; // 서버 데이터가 최신이면 덮어씀
-      });
-      return merged.sort((a, b) => b.date - a.date);
-    });
-
-    setSouvenirs(prev => {
-      const merged = [...prev];
-      safeS.forEach((ss: Souvenir) => {
-        const idx = merged.findIndex(ls => ls.id === ss.id);
-        if (idx === -1) merged.push(ss);
-        else merged[idx] = ss;
-      });
-      return merged;
-    });
-
-    setPackItems(prev => {
-      const merged = [...prev];
-      safeP.forEach((sp: PackItem) => {
-        const idx = merged.findIndex(lp => lp.id === sp.id);
-        if (idx === -1) merged.push(sp);
-        else merged[idx] = sp;
-      });
-      return merged;
-    });
+    // Explicitly add generic type parameters to fix the TypeScript error on line 71 where b.date was not being found.
+    setExpenses(prev => mergeCollection<Expense>(prev, safeE).sort((a, b) => b.date - a.date));
+    setSouvenirs(prev => mergeCollection<Souvenir>(prev, safeS));
+    setPackItems(prev => mergeCollection<PackItem>(prev, safeP));
 
     lastServerDataRef.current = JSON.stringify({ e: safeE, s: safeS, p: safeP });
   }, []);
 
-  // [실시간 동기화 설정]
+  // [실시간 동기화 리스너]
   useEffect(() => {
     if (!familyId || !supabase) return;
 
-    // 테이블 변경 감지 채널 구독
     const channel = supabase
       .channel(`sync-${familyId}`)
       .on(
@@ -101,10 +91,11 @@ const App: React.FC = () => {
           filter: `family_id=eq.${familyId}` 
         },
         (payload) => {
-          // 내가 저장 중이 아닐 때만 실시간 데이터 반영 (충돌 방지)
-          if (!isUserActionRef.current) {
-            console.log("Remote update detected, syncing...");
-            mergeData(payload.new);
+          // 내가 지금 "저장 중"인 찰나가 아니라면 실시간으로 데이터를 합칩니다.
+          // isUserActionRef가 true라도 새로운 ID를 가진 데이터는 받아와야 합니다.
+          if (!isSaving) {
+            console.log("실시간 업데이트 감지: 데이터 병합 중...");
+            mergeAllData(payload.new);
           }
         }
       )
@@ -113,7 +104,7 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [familyId, mergeData]);
+  }, [familyId, mergeAllData, isSaving]);
 
   const getCurrentDataStr = useCallback(() => {
     return JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
@@ -123,7 +114,7 @@ const App: React.FC = () => {
     if (!isMenuOpen) return { sizeMB: "0.00", items: [] };
     const dataStr = getCurrentDataStr();
     const sizeMB = (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
-    const items = (Array.isArray(souvenirs) ? souvenirs : []).map(s => ({
+    const items = souvenirs.map(s => ({
       title: s.title || '이름 없음',
       size: (new Blob([JSON.stringify(s)]).size / 1024).toFixed(1) + 'KB'
     })).sort((a, b) => parseFloat(b.size) - parseFloat(a.size));
@@ -136,7 +127,7 @@ const App: React.FC = () => {
     if (!supabase || fetchLock.current) return;
     fetchLock.current = true;
     
-    if (!isSilent && expenses.length === 0) setIsLoading(true);
+    if (!isSilent && !isInitialLoadDone) setIsLoading(true);
     
     try {
       const { data, error } = await supabase
@@ -148,7 +139,7 @@ const App: React.FC = () => {
       if (error) throw error;
       
       if (data) {
-        mergeData(data);
+        mergeAllData(data);
       }
       
       initialLoadCompletedRef.current = true;
@@ -161,11 +152,12 @@ const App: React.FC = () => {
       setIsLoading(false); 
       fetchLock.current = false;
     }
-  }, [expenses.length, mergeData]);
+  }, [isInitialLoadDone, mergeAllData]);
 
   const saveToSupabase = useCallback(async () => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isSaving) return;
     
+    // 저장 전 한 번 더 병합할 수도 있지만, Realtime이 계속 병합해주므로 현재 상태가 최선이라고 가정
     const dataStr = getCurrentDataStr();
     const sizeInMB = new Blob([dataStr]).size / (1024 * 1024);
 
@@ -188,21 +180,20 @@ const App: React.FC = () => {
       
       lastServerDataRef.current = dataStr;
       setSaveError(null);
-      isUserActionRef.current = false; // 저장 성공 시 작업 플래그 해제 (이제 실시간 업데이트 수신 가능)
+      isUserActionRef.current = false; 
     } catch (e: any) {
-      console.error("Save error:", e);
-      setSaveError("서버 저장 실패! 네트워크를 확인해주세요.");
+      console.error("저장 실패:", e);
+      setSaveError("서버 저장 중 충돌이 발생했습니다. 다시 시도합니다.");
     } finally {
       setIsSaving(false);
     }
   }, [familyId, expenses, souvenirs, packItems, getCurrentDataStr, isSaving]);
 
-  // 디바운스 자동 저장
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
     const timer = setTimeout(() => {
       saveToSupabase();
-    }, 1500); // 1.5초로 약간 늘려 동시 작업 안정성 확보
+    }, 1500); 
     return () => clearTimeout(timer);
   }, [expenses, souvenirs, packItems, saveToSupabase]);
 
@@ -247,11 +238,11 @@ const App: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   {isSaving ? (
-                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SYNCING...</span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SAVING...</span>
                   ) : isOutOfSync ? (
-                    <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[9px] font-black rounded-full flex items-center gap-1"><CloudOff size={8} /> PENDING SAVE</span>
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[9px] font-black rounded-full flex items-center gap-1"><CloudOff size={8} /> LOCAL CHANGED</span>
                   ) : (
-                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> CLOUD SYNCED</span>
+                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> MULTI-SYNCED</span>
                   )}
                   <span className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">ID: {familyId}</span>
                 </div>
@@ -271,10 +262,10 @@ const App: React.FC = () => {
               </div>
             )}
             
-            {isLoading && expenses.length === 0 ? (
+            {isLoading ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest">실시간 동기화 중...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest text-center">동기화된 가족 데이터를<br/>불러오는 중입니다...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-300">
@@ -343,7 +334,7 @@ const App: React.FC = () => {
                   </div>
 
                   <button onClick={() => { fetchFamilyData(familyId!, false); setIsMenuOpen(false); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2">
-                    <RefreshCcw size={16} />강제 새로고침
+                    <RefreshCcw size={16} />데이터 새로고침
                   </button>
 
                   <button onClick={() => { localStorage.removeItem('family_id'); window.location.reload(); }} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2">
