@@ -19,6 +19,7 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
 
   const safeSouvenirs = useMemo(() => Array.isArray(souvenirs) ? souvenirs : [], [souvenirs]);
 
+  // 이미지 압축 로직 개선 (화질 상향)
   const compressImage = (base64Str: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -27,7 +28,10 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const MAX_SIZE = 400;
+        
+        // 최대 크기를 1024px로 상향 (기존 400px)
+        const MAX_SIZE = 1024;
+        
         if (width > height) {
           if (width > MAX_SIZE) {
             height *= MAX_SIZE / width;
@@ -39,15 +43,18 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
             height = MAX_SIZE;
           }
         }
+        
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'medium';
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
         }
-        resolve(canvas.toDataURL('image/jpeg', 0.3));
+        
+        // 품질을 0.75로 상향 (기존 0.3)
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
       };
     });
   };
@@ -55,8 +62,8 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        alert("파일이 너무 큽니다. 10MB 이하의 이미지를 선택해주세요.");
+      if (file.size > 15 * 1024 * 1024) {
+        alert("파일이 너무 큽니다. 15MB 이하의 이미지를 선택해주세요.");
         return;
       }
       setIsCompressing(true);
@@ -117,7 +124,6 @@ const SouvenirView: React.FC<SouvenirViewProps> = ({ souvenirs = [], setSouvenir
       setSouvenirs(prev => [newItem, ...(Array.isArray(prev) ? prev : [])]);
     }
     
-    // 상태 변경 후 즉시 폼 닫기
     setIsFormOpen(false);
   };
 
