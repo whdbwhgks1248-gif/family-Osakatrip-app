@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Wallet, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3, CloudOff } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Wallet, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
@@ -33,7 +33,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [showSizeDetails, setShowSizeDetails] = useState(false);
   
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -61,7 +60,8 @@ const App: React.FC = () => {
   const mergeAllData = useCallback((serverData: any) => {
     const safeE = Array.isArray(serverData.expenses) ? serverData.expenses : [];
     const safeS = Array.isArray(serverData.souvenirs) ? serverData.souvenirs : [];
-    const safeF = Array.isArray(serverData.pack_items) ? serverData.pack_items : []; // DB 컬럼명은 유지하되 데이터는 fund로 사용
+    // DB 컬럼명을 public_fund로 매핑 (기존 pack_items 데이터가 있다면 무시됨)
+    const safeF = Array.isArray(serverData.public_fund) ? serverData.public_fund : []; 
 
     setExpenses(prev => mergeCollection<Expense>(prev, safeE).sort((a, b) => b.date - a.date));
     setSouvenirs(prev => mergeCollection<Souvenir>(prev, safeS));
@@ -89,21 +89,6 @@ const App: React.FC = () => {
     };
   }, [familyId, mergeAllData, isSaving]);
 
-  const getCurrentDataStr = useCallback(() => {
-    return JSON.stringify({ e: expenses, s: souvenirs, f: fundTransactions });
-  }, [expenses, souvenirs, fundTransactions]);
-
-  const stats = useMemo(() => {
-    if (!isMenuOpen) return { sizeMB: "0.00", items: [] };
-    const dataStr = getCurrentDataStr();
-    const sizeMB = (new Blob([dataStr]).size / (1024 * 1024)).toFixed(2);
-    const items = souvenirs.map(s => ({
-      title: s.title || '이름 없음',
-      size: (new Blob([JSON.stringify(s)]).size / 1024).toFixed(1) + 'KB'
-    })).sort((a, b) => parseFloat(b.size) - parseFloat(a.size));
-    return { sizeMB, items };
-  }, [isMenuOpen, souvenirs, getCurrentDataStr]);
-
   const fetchFamilyData = useCallback(async (id: string, isSilent = false) => {
     if (!supabase || fetchLock.current) return;
     fetchLock.current = true;
@@ -112,7 +97,7 @@ const App: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('family_state')
-        .select('expenses, souvenirs, pack_items')
+        .select('expenses, souvenirs, public_fund') // public_fund 컬럼 조회
         .eq('family_id', id.toUpperCase())
         .maybeSingle();
         
@@ -140,7 +125,7 @@ const App: React.FC = () => {
         family_id: familyId,
         expenses: expenses,
         souvenirs: souvenirs,
-        pack_items: fundTransactions, // DB 컬럼명 호환성 유지
+        public_fund: fundTransactions, // public_fund 컬럼으로 저장
         updated_at: new Date().toISOString()
       });
       if (error) throw error;
