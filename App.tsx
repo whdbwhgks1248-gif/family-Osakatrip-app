@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Calendar, ShieldCheck, Calculator, ShoppingBag, Briefcase, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3, CloudOff, CloudSync } from 'lucide-react';
+import { Calendar, ShieldCheck, Calculator, ShoppingBag, Wallet, Menu, X, RefreshCcw, Loader2, KeyRound, LogOut, CheckCircle, AlertCircle, HardDrive, BarChart3, CloudOff } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import ScheduleView from './components/ScheduleView';
 import RulesView from './components/RulesView';
 import SettlementView from './components/SettlementView';
 import SouvenirView from './components/SouvenirView';
-import PackView from './components/PackView';
-import { Expense, Souvenir, PackItem } from './types';
+import PublicFundView from './components/PublicFundView';
+import { Expense, Souvenir, PublicFundTransaction } from './types';
 import { SCHEDULE_DATA } from './constants';
 
 const getSupabaseConfig = () => {
@@ -20,7 +20,7 @@ const getSupabaseConfig = () => {
 const config = getSupabaseConfig();
 const supabase = !config.isMissing ? createClient(config.url, config.anonKey) : null;
 
-type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'pack';
+type TabType = 'schedule' | 'rules' | 'settlement' | 'souvenir' | 'fund';
 
 const App: React.FC = () => {
   const [familyId, setFamilyId] = useState<string | null>(() => {
@@ -38,24 +38,19 @@ const App: React.FC = () => {
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [souvenirs, setSouvenirs] = useState<Souvenir[]>([]);
-  const [packItems, setPackItems] = useState<PackItem[]>([]);
+  const [fundTransactions, setFundTransactions] = useState<PublicFundTransaction[]>([]);
   
-  const lastServerDataRef = useRef<string>(""); 
-  const isUserActionRef = useRef<boolean>(false); 
   const initialLoadCompletedRef = useRef<boolean>(false);
+  const isUserActionRef = useRef<boolean>(false); 
   const fetchLock = useRef<boolean>(false);
 
-  // 고유 ID를 기반으로 데이터를 병합하는 함수 (중요: 데이터 유실 방지)
   const mergeCollection = <T extends { id: string }>(local: T[], server: T[]): T[] => {
     const merged = [...local];
     server.forEach(serverItem => {
       const exists = merged.find(localItem => localItem.id === serverItem.id);
       if (!exists) {
-        // 내 리스트에 없는 항목(다른 사람이 추가한 것)만 추가
         merged.push(serverItem);
       } else {
-        // 이미 있는 항목이라면? 
-        // 실시간 업데이트의 경우 서버가 최신이므로 서버 데이터로 동기화 (단, 내가 수정 중인 항목이 아닐 때만 - 이 앱은 항목 단위 편집이므로 ID 일치 시 교체)
         const idx = merged.findIndex(m => m.id === serverItem.id);
         merged[idx] = serverItem;
       }
@@ -66,17 +61,13 @@ const App: React.FC = () => {
   const mergeAllData = useCallback((serverData: any) => {
     const safeE = Array.isArray(serverData.expenses) ? serverData.expenses : [];
     const safeS = Array.isArray(serverData.souvenirs) ? serverData.souvenirs : [];
-    const safeP = Array.isArray(serverData.pack_items) ? serverData.pack_items : [];
+    const safeF = Array.isArray(serverData.pack_items) ? serverData.pack_items : []; // DB 컬럼명은 유지하되 데이터는 fund로 사용
 
-    // Explicitly add generic type parameters to fix the TypeScript error on line 71 where b.date was not being found.
     setExpenses(prev => mergeCollection<Expense>(prev, safeE).sort((a, b) => b.date - a.date));
     setSouvenirs(prev => mergeCollection<Souvenir>(prev, safeS));
-    setPackItems(prev => mergeCollection<PackItem>(prev, safeP));
-
-    lastServerDataRef.current = JSON.stringify({ e: safeE, s: safeS, p: safeP });
+    setFundTransactions(prev => mergeCollection<PublicFundTransaction>(prev, safeF).sort((a, b) => b.date - a.date));
   }, []);
 
-  // [실시간 동기화 리스너]
   useEffect(() => {
     if (!familyId || !supabase) return;
 
@@ -84,17 +75,9 @@ const App: React.FC = () => {
       .channel(`sync-${familyId}`)
       .on(
         'postgres_changes',
-        { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'family_state', 
-          filter: `family_id=eq.${familyId}` 
-        },
+        { event: 'UPDATE', schema: 'public', table: 'family_state', filter: `family_id=eq.${familyId}` },
         (payload) => {
-          // 내가 지금 "저장 중"인 찰나가 아니라면 실시간으로 데이터를 합칩니다.
-          // isUserActionRef가 true라도 새로운 ID를 가진 데이터는 받아와야 합니다.
           if (!isSaving) {
-            console.log("실시간 업데이트 감지: 데이터 병합 중...");
             mergeAllData(payload.new);
           }
         }
@@ -107,8 +90,8 @@ const App: React.FC = () => {
   }, [familyId, mergeAllData, isSaving]);
 
   const getCurrentDataStr = useCallback(() => {
-    return JSON.stringify({ e: expenses, s: souvenirs, p: packItems });
-  }, [expenses, souvenirs, packItems]);
+    return JSON.stringify({ e: expenses, s: souvenirs, f: fundTransactions });
+  }, [expenses, souvenirs, fundTransactions]);
 
   const stats = useMemo(() => {
     if (!isMenuOpen) return { sizeMB: "0.00", items: [] };
@@ -121,12 +104,9 @@ const App: React.FC = () => {
     return { sizeMB, items };
   }, [isMenuOpen, souvenirs, getCurrentDataStr]);
 
-  const isOutOfSync = useMemo(() => isUserActionRef.current, [isUserActionRef.current]);
-
   const fetchFamilyData = useCallback(async (id: string, isSilent = false) => {
     if (!supabase || fetchLock.current) return;
     fetchLock.current = true;
-    
     if (!isSilent && !isInitialLoadDone) setIsLoading(true);
     
     try {
@@ -137,10 +117,7 @@ const App: React.FC = () => {
         .maybeSingle();
         
       if (error) throw error;
-      
-      if (data) {
-        mergeAllData(data);
-      }
+      if (data) mergeAllData(data);
       
       initialLoadCompletedRef.current = true;
       setIsInitialLoadDone(true);
@@ -157,45 +134,31 @@ const App: React.FC = () => {
   const saveToSupabase = useCallback(async () => {
     if (!familyId || !supabase || !initialLoadCompletedRef.current || isSaving) return;
     
-    // 저장 전 한 번 더 병합할 수도 있지만, Realtime이 계속 병합해주므로 현재 상태가 최선이라고 가정
-    const dataStr = getCurrentDataStr();
-    const sizeInMB = new Blob([dataStr]).size / (1024 * 1024);
-
-    if (sizeInMB > 9.8) {
-      setSaveError(`용량 초과 (${sizeInMB.toFixed(1)}MB)! 사진을 줄여주세요.`);
-      return;
-    }
-
     setIsSaving(true);
     try {
       const { error } = await supabase.from('family_state').upsert({
         family_id: familyId,
         expenses: expenses,
         souvenirs: souvenirs,
-        pack_items: packItems,
+        pack_items: fundTransactions, // DB 컬럼명 호환성 유지
         updated_at: new Date().toISOString()
       });
-
       if (error) throw error;
-      
-      lastServerDataRef.current = dataStr;
       setSaveError(null);
       isUserActionRef.current = false; 
     } catch (e: any) {
       console.error("저장 실패:", e);
-      setSaveError("서버 저장 중 충돌이 발생했습니다. 다시 시도합니다.");
+      setSaveError("서버 저장 중 충돌이 발생했습니다.");
     } finally {
       setIsSaving(false);
     }
-  }, [familyId, expenses, souvenirs, packItems, getCurrentDataStr, isSaving]);
+  }, [familyId, expenses, souvenirs, fundTransactions, isSaving]);
 
   useEffect(() => {
     if (!isUserActionRef.current || !initialLoadCompletedRef.current) return;
-    const timer = setTimeout(() => {
-      saveToSupabase();
-    }, 1500); 
+    const timer = setTimeout(() => saveToSupabase(), 1500); 
     return () => clearTimeout(timer);
-  }, [expenses, souvenirs, packItems, saveToSupabase]);
+  }, [expenses, souvenirs, fundTransactions, saveToSupabase]);
 
   const updateExpenses = (updater: React.SetStateAction<Expense[]>) => {
     isUserActionRef.current = true;
@@ -207,9 +170,9 @@ const App: React.FC = () => {
     setSouvenirs(updater);
   };
 
-  const updatePackItems = (updater: React.SetStateAction<PackItem[]>) => {
+  const updateFundTransactions = (updater: React.SetStateAction<PublicFundTransaction[]>) => {
     isUserActionRef.current = true;
-    setPackItems(updater);
+    setFundTransactions(updater);
   };
 
   useEffect(() => { 
@@ -239,18 +202,15 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2">
                   {isSaving ? (
                     <span className="px-2 py-0.5 bg-blue-100 text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><Loader2 size={8} className="animate-spin" /> SAVING...</span>
-                  ) : isOutOfSync ? (
-                    <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[9px] font-black rounded-full flex items-center gap-1"><CloudOff size={8} /> LOCAL CHANGED</span>
                   ) : (
-                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> MULTI-SYNCED</span>
+                    <span className="px-2 py-0.5 bg-[#F2E96D] text-[#1675F2] text-[9px] font-black rounded-full flex items-center gap-1"><CheckCircle size={8} /> LIVE SYNCED</span>
                   )}
                   <span className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">ID: {familyId}</span>
                 </div>
                 <h1 className="text-xl font-black text-[#1675F2] tracking-tighter">{SCHEDULE_DATA.title}</h1>
               </div>
-              <button onClick={() => setIsMenuOpen(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-full hover:bg-slate-100 transition-colors relative">
+              <button onClick={() => setIsMenuOpen(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-full hover:bg-slate-100 transition-colors">
                 <Menu size={20}/>
-                {isOutOfSync && <div className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border-2 border-white"></div>}
               </button>
             </div>
           </header>
@@ -265,7 +225,7 @@ const App: React.FC = () => {
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="animate-spin text-[#1675F2]" size={32} />
-                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest text-center">동기화된 가족 데이터를<br/>불러오는 중입니다...</p>
+                <p className="text-[10px] font-black text-[#1675F2] uppercase tracking-widest text-center">가족 데이터를 동기화 중...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-300">
@@ -273,7 +233,7 @@ const App: React.FC = () => {
                 {activeTab === 'rules' && <RulesView />}
                 {activeTab === 'settlement' && <SettlementView expenses={expenses} setExpenses={updateExpenses} />}
                 {activeTab === 'souvenir' && <SouvenirView souvenirs={souvenirs} setSouvenirs={updateSouvenirs} />}
-                {activeTab === 'pack' && <PackView packItems={packItems} setPackItems={updatePackItems} />}
+                {activeTab === 'fund' && <PublicFundView transactions={fundTransactions} setTransactions={updateFundTransactions} />}
               </div>
             )}
           </main>
@@ -282,9 +242,9 @@ const App: React.FC = () => {
             {[
               { id: 'schedule', label: '일정', icon: Calendar },
               { id: 'rules', label: '규칙', icon: ShieldCheck },
-              { id: 'settlement', label: '정산', icon: Calculator },
-              { id: 'souvenir', label: '기념품', icon: ShoppingBag },
-              { id: 'pack', label: '준비물', icon: Briefcase },
+              { id: 'fund', label: '공금', icon: Wallet },
+              { id: 'settlement', label: '개별정산', icon: Calculator },
+              { id: 'souvenir', label: '쇼핑', icon: ShoppingBag },
             ].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as TabType)} className={`flex items-center justify-center h-12 rounded-full transition-all duration-300 ${activeTab === tab.id ? 'bg-[#F2E96D] text-[#1675F2] px-6 shadow-lg' : 'text-white/50 w-12'}`}>
                 <tab.icon size={18} strokeWidth={activeTab === tab.id ? 3 : 2} />
@@ -303,40 +263,9 @@ const App: React.FC = () => {
                     <p className="text-[10px] font-black text-slate-400 uppercase">현재 가족 코드</p>
                     <p className="text-3xl font-black text-[#1675F2] uppercase">{familyId}</p>
                   </div>
-
-                  <div className="p-6 bg-white rounded-3xl border border-slate-100 space-y-3">
-                    <div className="flex justify-between items-end">
-                      <div className="flex items-center gap-2 text-[#566873]">
-                        <HardDrive size={16} />
-                        <span className="text-xs font-black">저장 공간 사용량</span>
-                      </div>
-                      <span className={`text-[11px] font-black ${Number(stats.sizeMB) > 8 ? 'text-red-500' : 'text-[#1675F2]'}`}>{stats.sizeMB}MB / 8.0MB</span>
-                    </div>
-                    <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-500 ${Number(stats.sizeMB) > 8 ? 'bg-red-500' : Number(stats.sizeMB) > 6 ? 'bg-orange-400' : 'bg-[#1675F2]'}`}
-                        style={{ width: `${Math.min((Number(stats.sizeMB) / 8.0) * 100, 100)}%` }}
-                      ></div>
-                    </div>
-                    <button onClick={() => setShowSizeDetails(!showSizeDetails)} className="text-[9px] text-[#1675F2] font-black flex items-center gap-1 uppercase tracking-widest">
-                      <BarChart3 size={10} /> {showSizeDetails ? '분석 닫기' : '아이템별 용량 분석'}
-                    </button>
-                    {showSizeDetails && (
-                      <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2 no-scrollbar">
-                        {stats.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-[10px] font-bold border-b border-slate-50 pb-1">
-                            <span className="text-slate-500 truncate mr-2">{item.title}</span>
-                            <span className="text-[#1675F2] shrink-0">{item.size}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
                   <button onClick={() => { fetchFamilyData(familyId!, false); setIsMenuOpen(false); }} className="w-full py-5 bg-[#F1F2F0] text-[#566873] rounded-2xl text-sm font-black flex items-center justify-center gap-2">
                     <RefreshCcw size={16} />데이터 새로고침
                   </button>
-
                   <button onClick={() => { localStorage.removeItem('family_id'); window.location.reload(); }} className="w-full py-5 bg-red-50 text-red-500 rounded-2xl text-sm font-black flex items-center justify-center gap-2">
                     <LogOut size={16} />연결 해제
                   </button>

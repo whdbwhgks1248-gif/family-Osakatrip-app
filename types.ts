@@ -43,11 +43,21 @@ export interface Souvenir {
   isPurchased: boolean;
 }
 
+// Added PackItem interface to fix error in PackView.tsx
 export interface PackItem {
   id: string;
   title: string;
-  assignedTo: Assignee[]; // 단일 값이 아닌 배열로 변경
+  assignedTo: Assignee[];
   isDone: boolean;
+}
+
+export interface PublicFundTransaction {
+  id: string;
+  type: 'deposit' | 'expense';
+  title: string;
+  amount: number;
+  date: number;
+  category?: '식비' | '교통비' | '관광' | '쇼핑' | '숙박' | '기타' | '입금';
 }
 
 export interface ChatMessage {
