@@ -83,7 +83,8 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "21:15 - 22:30",
           title: "카몬 호텔 난바",
           transport: 'train',
-          note: `• <a href='https://blog.naver.com/bbh4313/224127071321' target='_blank' style='${linkStyle}'>ATM 위치 확인하기</a>\n• 라피트 막차 시간 : 22시 55분`,
+          image: IMAGES.rapit_last_day1,
+          note: `• <a href='https://blog.naver.com/bbh4313/224127071321' target='_blank' style='${linkStyle}'>ATM 위치 확인하기</a>\n• <a href='https://blog.naver.com/laidbacknanna/224133183983' target='_blank' style='${linkStyle}'>라피트 교환 방법 및 위치</a>\n• 라피트 막차 시간 : 22시 55분`,
           mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9"
         },
         {
@@ -458,8 +459,9 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "15:20 - 16:00",
           title: "오사카 공항 이동",
           transport: 'train',
+          image: IMAGES.rapit_day5,
           expectedCost: "라피트: 약 ₩12,000",
-          noImage: true
+          note: "• 라피트 시간 : 15시 35분"
         },
         {
           time: "19:10 - 21:05",
