@@ -136,17 +136,22 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           noImage: true
         },
         {
-          time: "10:30 - 11:00",
+          time: "10:20 - 11:00",
           title: "타이쇼 하나나",
           transport: 'train',
           mapUrl: "https://maps.app.goo.gl/fauUxg3ejMhf2pWj7",
           expectedCost: "교통비: ¥240",
+          note: "• 식당 10분전까지 도착해야함",
           noImage: true
         },
         {
           time: "11:00 - 12:00",
           title: "타이쇼 하나나 식사",
-          image: IMAGES.hanana,
+          // 사진이 잘리지 않도록 images 배열 형식을 사용하고 fit: contain 적용
+          images: [
+            { src: IMAGES.hanana, fit: 'contain' },
+            { src: IMAGES.hanana_info, fit: 'contain' }
+          ],
           note: `• 현금결제만 가능\n• <a href='https://blog.naver.com/jiyoo9697/223874041269' target='_blank' rel='noopener noreferrer' style='${linkStyle}'>식당 정보 상세보기</a>`
         },
         {
