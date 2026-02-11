@@ -55,7 +55,7 @@ const ScheduleView: React.FC = () => {
         ))}
       </div>
 
-      <div className={`space-y-5 relative pt-2 ${!isInfoTab ? 'pl-3 border-l-2 border-[#1675F2]/10' : ''}`}>
+      <div className={`${isInfoTab ? 'space-y-4 pt-1' : 'space-y-5 pt-2 pl-3 border-l-2 border-[#1675F2]/10'} relative`}>
         {currentDayData.items.map((item, idx) => {
           const transportIcon = getTransportIcon(item);
           const isMovement = !!item.transport || item.title.includes('→') || item.title.includes('->');
@@ -70,7 +70,7 @@ const ScheduleView: React.FC = () => {
               )}
               
               <div className={`bg-white rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgba(86,104,115,0.06)] border transition-all ${isInfoTab ? 'border-[#1675F2]/10 bg-gradient-to-br from-white to-[#F8F9FD]' : isMovement ? 'border-[#1675F2]/20 bg-gradient-to-br from-white to-[#1675F2]/5' : 'border-[#566873]/5'}`}>
-                <div className={`p-6 ${hasImage ? 'pb-6' : 'pb-4'}`}>
+                <div className={`${isInfoTab ? 'p-5' : 'p-6'} ${hasImage ? 'pb-6' : 'pb-4'}`}>
                   {/* 일정 카드 상단 영역 (시간 & 지도버튼) - 정보 탭이 아닐 때만 렌더링 */}
                   {!isInfoTab && (
                     <div className="flex justify-between items-start mb-2">
@@ -155,7 +155,7 @@ const ScheduleView: React.FC = () => {
                 ))}
 
                 {item.pdfUrl && (
-                  <div className={`px-6 pb-6 ${hasImage ? 'pt-6' : 'pt-2'}`}>
+                  <div className={`${isInfoTab ? 'px-5 pb-5' : 'px-6 pb-6'} ${hasImage ? 'pt-6' : 'pt-2'}`}>
                     <a 
                       href={item.pdfUrl}
                       target="_blank"
@@ -179,7 +179,7 @@ const ScheduleView: React.FC = () => {
                 )}
 
                 {item.expectedCost && (
-                  <div className={`px-6 ${hasImage && !item.pdfUrl ? 'pt-6' : 'pt-1'} ${!item.note ? 'pb-8' : 'pb-1'}`}>
+                  <div className={`${isInfoTab ? 'px-5' : 'px-6'} ${hasImage && !item.pdfUrl ? 'pt-6' : 'pt-1'} ${!item.note ? 'pb-8' : 'pb-1'}`}>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FDF6B2]/80 text-[#1675F2] rounded-xl text-[11px] font-black shadow-sm border border-[#F2E96D]/30">
                       <Coins size={12} />
                       {item.expectedCost}
@@ -188,7 +188,7 @@ const ScheduleView: React.FC = () => {
                 )}
 
                 {item.note && (
-                  <div className={`p-6 ${hasImage && !item.pdfUrl && !item.expectedCost ? 'pt-6' : 'pt-2'}`}>
+                  <div className={`${isInfoTab ? 'p-5' : 'p-6'} ${hasImage && !item.pdfUrl && !item.expectedCost ? 'pt-6' : 'pt-2'}`}>
                     <div className={`${isInfoTab ? 'bg-white' : 'bg-[#F1F2F0]/40'} p-4 rounded-2xl border border-[#566873]/5`}>
                       {item.note.split('\n').map((line, i) => {
                         const hasOriginalBullet = /^[•\-*]/.test(line);
