@@ -52,8 +52,8 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         },
         {
           title: "일본 체류지 정보 (호텔)",
-          note: "• 우편번호: 542-0074\n• 호텔명: 웰스테이 난바 (Wellstay Namba)\n• 주소: 2 Chome-3-33 Sennichimae, Chuo Ward, Osaka, 542-0074 일본\n• 연락처: +81 6 6632 3520",
-          mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9",
+          note: "• 우편번호: 556-0016\n• 호텔명: 웰스테이 난바 (Wellstay Namba)\n• 주소: 8-10 Motomachi 2-chome, Naniwa Ward, Osaka City, Osaka Prefecture, 오사카, 일본\n• 연락처: +81666957071",
+          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8",
           noImage: true
         },
         {
@@ -86,7 +86,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           // 사진이 잘리지 않도록 images 배열 형식을 사용하고 fit: contain 적용
           images: [{ src: IMAGES.rapit_last_day1, fit: 'contain' }],
           note: `• <a href='https://blog.naver.com/laidbacknanna/224133183983' target='_blank' style='${linkStyle}'>라피트 시간 및 교환 정보 (필독)</a>\n• <a href='https://blog.naver.com/bbh4313/224127071321' target='_blank' style='${linkStyle}'>ATM 위치 확인하기</a>\n• 라피트 막차 시간 : 22시 55분`,
-          mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9"
+          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8"
         },
         {
           time: "22:30",
@@ -94,7 +94,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           image: IMAGES.wellstay_namba,
           note: "• 체크인 및 짐 풀기",
           expectedCost: "숙박세: 인당 ¥200",
-          mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9"
+          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8"
         },
         {
           time: "참고",
