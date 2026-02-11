@@ -71,15 +71,12 @@ const ScheduleView: React.FC = () => {
               
               <div className={`bg-white rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgba(86,104,115,0.06)] border transition-all ${isInfoTab ? 'border-[#1675F2]/10 bg-gradient-to-br from-white to-[#F8F9FD]' : isMovement ? 'border-[#1675F2]/20 bg-gradient-to-br from-white to-[#1675F2]/5' : 'border-[#566873]/5'}`}>
                 <div className={`p-6 ${hasImage ? 'pb-6' : 'pb-4'}`}>
-                  {(!isInfoTab || item.mapUrl) && (
-                    <div className={`flex justify-between items-start ${isInfoTab ? 'mb-1.5' : 'mb-2'}`}>
+                  {/* 일정 카드 상단 영역 (시간 & 지도버튼) - 정보 탭이 아닐 때만 렌더링 */}
+                  {!isInfoTab && (
+                    <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-1.5">
-                        {!isInfoTab && (
-                          <>
-                            <Clock size={10} className="text-[#1675F2]" />
-                            <span className="text-[10px] font-black text-[#1675F2] tracking-widest uppercase">{item.time || '유동적'}</span>
-                          </>
-                        )}
+                        <Clock size={10} className="text-[#1675F2]" />
+                        <span className="text-[10px] font-black text-[#1675F2] tracking-widest uppercase">{item.time || '유동적'}</span>
                       </div>
                       {item.mapUrl && (
                         <a 
@@ -94,13 +91,28 @@ const ScheduleView: React.FC = () => {
                     </div>
                   )}
                   
-                  <div className="flex items-center gap-2.5">
-                    {transportIcon && <div className="p-1.5 bg-[#1675F2] text-white rounded-lg shadow-sm shrink-0 flex items-center justify-center"><div className="w-3.5 h-3.5 flex items-center justify-center">{transportIcon}</div></div>}
-                    {!transportIcon && isMovement && <div className="p-1.5 bg-[#566873]/10 text-[#566873] rounded-lg shrink-0 flex items-center justify-center"><MoveRight size={14} /></div>}
-                    {isInfoTab && !transportIcon && <div className="p-1.5 bg-[#F2E96D] text-[#1675F2] rounded-lg shadow-sm shrink-0 flex items-center justify-center"><Info size={14} /></div>}
-                    <h3 className={`text-[17px] font-black leading-none tracking-tight -mt-0.5 ${isInfoTab || isMovement ? 'text-[#1675F2]' : 'text-[#566873]'}`}>
-                      {displayTitle}
-                    </h3>
+                  {/* 제목 및 아이콘 영역 */}
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5">
+                      {transportIcon && <div className="p-1.5 bg-[#1675F2] text-white rounded-lg shadow-sm shrink-0 flex items-center justify-center"><div className="w-3.5 h-3.5 flex items-center justify-center">{transportIcon}</div></div>}
+                      {!transportIcon && isMovement && <div className="p-1.5 bg-[#566873]/10 text-[#566873] rounded-lg shrink-0 flex items-center justify-center"><MoveRight size={14} /></div>}
+                      {isInfoTab && !transportIcon && <div className="p-1.5 bg-[#F2E96D] text-[#1675F2] rounded-lg shadow-sm shrink-0 flex items-center justify-center"><Info size={14} /></div>}
+                      <h3 className={`text-[17px] font-black leading-none tracking-tight -mt-0.5 ${isInfoTab || isMovement ? 'text-[#1675F2]' : 'text-[#566873]'}`}>
+                        {displayTitle}
+                      </h3>
+                    </div>
+                    
+                    {/* 정보 탭일 때 지도 버튼을 제목 옆(우측)에 배치하여 여백 최소화 */}
+                    {isInfoTab && item.mapUrl && (
+                      <a 
+                        href={item.mapUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="w-7 h-7 bg-[#1675F2]/5 text-[#1675F2] rounded-full flex items-center justify-center transition-all hover:bg-[#1675F2] hover:text-white shrink-0"
+                      >
+                        <MapPin size={12} />
+                      </a>
+                    )}
                   </div>
                 </div>
 
