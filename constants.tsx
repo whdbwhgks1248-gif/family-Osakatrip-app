@@ -52,7 +52,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         },
         {
           title: "일본 체류지 정보 (호텔)",
-          note: "• 우편번호: 542-0074\n• 호텔명: kamon-hotel\n• 주소: 2 Chome-3-33 Sennichimae, Chuo Ward, Osaka, 542-0074 일본\n• 연락처: +81 6 6632 3520",
+          note: "• 우편번호: 542-0074\n• 호텔명: 웰스테이 난바 (Wellstay Namba)\n• 주소: 2 Chome-3-33 Sennichimae, Chuo Ward, Osaka, 542-0074 일본\n• 연락처: +81 6 6632 3520",
           mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9",
           noImage: true
         },
@@ -81,7 +81,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         },
         {
           time: "21:15 - 22:30",
-          title: "카몬 호텔 난바",
+          title: "웰스테이 난바",
           transport: 'train',
           // 사진이 잘리지 않도록 images 배열 형식을 사용하고 fit: contain 적용
           images: [{ src: IMAGES.rapit_last_day1, fit: 'contain' }],
@@ -90,16 +90,16 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         },
         {
           time: "22:30",
-          title: "카몬 호텔 난바 도착",
-          image: IMAGES.camonhotel,
+          title: "웰스테이 난바 도착",
+          image: IMAGES.wellstay_namba,
           note: "• 체크인 및 짐 풀기",
           expectedCost: "숙박세: 인당 ¥200",
           mapUrl: "https://maps.app.goo.gl/SuSzkceFCajWgMCU9"
         },
         {
           time: "참고",
-          title: "카몬 호텔 예약확정서",
-          pdfUrl: "https://drive.google.com/file/d/1aXW2qPUkb1XpMIQ5lNE-VyYKsImkg_1t/view?usp=sharing",
+          title: "웰스테이 난바 예약 확정서",
+          pdfUrl: "https://drive.google.com/file/d/1WsUnPyN7zYxbgx66YVHEdjsYG5y223Xq/view?usp=drive_link",
           noImage: true
         }
       ]

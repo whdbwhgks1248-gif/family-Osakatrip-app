@@ -10,10 +10,10 @@ const getGDriveUrl = (id: string) =>
 
 export const IMAGES = {
   // Day 1 & 2
-  camonhotel: getGDriveUrl("1mQhjfDr4HDlmf-krx56uEquU--soSF-2"),
+  wellstay_namba: getGDriveUrl("1YDgypYgz8yMC1BmAmLEWNkAzcjWVIcmg"), // 웰스테이 난바 이미지로 교체
   rapit_last_day1: getGDriveUrl("1ZT5dU37cBYJJLEIxNvvciHMbKnGEazax"),
   hanana: getGDriveUrl("1zIOW4DLgGW9J3Fuj95vDyUrcZ8Xbcjun"),
-  hanana_info: getGDriveUrl("18pmvlNU5IdYtg25izjEtxwCm5VKC-g8s"), // 새롭게 요청된 이미지
+  hanana_info: getGDriveUrl("18pmvlNU5IdYtg25izjEtxwCm5VKC-g8s"),
   arashiyama: getGDriveUrl("1L4QeKoVGTFakH0_V0liw5nVEhyHa1ODA"),
   nishiki_market: getGDriveUrl("11sey_bkl8yzWwHHFMnaqARXxCFB59vJp"),
   redrock: getGDriveUrl("1dQxWvw_EnRG2oT3_dPeMT-YadY7aaiX-"),
