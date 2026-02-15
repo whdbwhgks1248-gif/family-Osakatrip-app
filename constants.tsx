@@ -53,7 +53,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
         {
           title: "일본 체류지 정보 (호텔)",
           note: "• 우편번호: 556-0016\n• 호텔명: 웰스테이 난바 (Wellstay Namba)\n• 주소: 8-10 Motomachi 2-chome, Naniwa Ward, Osaka City, Osaka Prefecture, 오사카, 일본\n• 연락처: +81666957071",
-          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8",
+          mapUrl: "https://maps.app.goo.gl/nvS9BKrFiouad9K8A",
           noImage: true
         },
         {
@@ -86,7 +86,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           // 사진이 잘리지 않도록 images 배열 형식을 사용하고 fit: contain 적용
           images: [{ src: IMAGES.rapit_last_day1, fit: 'contain' }],
           note: `• <a href='https://blog.naver.com/laidbacknanna/224133183983' target='_blank' style='${linkStyle}'>라피트 시간 및 교환 정보 (필독)</a>\n• <a href='https://blog.naver.com/bbh4313/224127071321' target='_blank' style='${linkStyle}'>ATM 위치 확인하기</a>\n• 라피트 막차 시간 : 22시 55분`,
-          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8"
+          mapUrl: "https://maps.app.goo.gl/nvS9BKrFiouad9K8A"
         },
         {
           time: "22:30",
@@ -94,7 +94,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           image: IMAGES.wellstay_namba,
           note: "• 체크인 및 짐 풀기",
           expectedCost: "숙박세: 인당 ¥200",
-          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8"
+          mapUrl: "https://maps.app.goo.gl/nvS9BKrFiouad9K8A"
         },
         {
           time: "참고",
@@ -303,7 +303,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "09:00 - 09:15",
           title: "Aoitori 이동",
           transport: 'walk',
-          mapUrl: "https://maps.app.goo.gl/NEQNzji7VXbuRbr6",
+          mapUrl: "https://maps.app.goo.gl/mMDPLVEXrey3PXeJ6",
           noImage: true
         },
         {
@@ -343,7 +343,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "13:00 - 14:00",
           title: "오사카 숙소 이동",
           transport: 'train',
-          mapUrl: "https://maps.app.goo.gl/bz95UscBXsHiY78V8",
+          mapUrl: "https://maps.app.goo.gl/nvS9BKrFiouad9K8A",
           image: IMAGES.kokohotel,
           expectedCost: "숙박세: ¥200",
           note: "• KOKO HOTEL Osaka Namba"
@@ -414,7 +414,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "08:30 - 10:00",
           title: "おにぎ리 松 (오니기리 마츠)",
           image: IMAGES.onigiri_matsu,
-          mapUrl: "https://maps.app.goo.gl/T4Y67F1zL88K1k6S7",
+          mapUrl: "https://maps.app.goo.gl/7BQACTZg3Q9t87MK7",
           note: `• <a href='https://blog.naver.com/shyeon07/224056304937' target='_blank' style='${linkStyle}'>오니기리 마츠 상세 정보</a>`
         },
         {
@@ -427,7 +427,7 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           time: "11:00 - 12:00",
           title: "규카츠 토미타",
           image: IMAGES.gyukatsu_tomita,
-          mapUrl: "https://maps.app.goo.gl/YjC6yS8f6mC7zY9s8",
+          mapUrl: "https://maps.app.goo.gl/JcKFKvyvBpcoRnq39",
           note: `• <a href='https://blog.naver.com/gmltjs5030/224081549500' target='_blank' style='${linkStyle}'>규카츠 토미타 메뉴 및 리뷰</a>`
         },
         {
@@ -435,26 +435,28 @@ export const SCHEDULE_DATA: { title: string; days: DaySchedule[] } = {
           title: "오사카성 이동",
           transport: 'taxi',
           expectedCost: "택시비: 약 ₩8,000",
+          mapUrl: "https://maps.app.goo.gl/BXwE44ghqupS888S8",
           noImage: true
         },
         {
           time: "12:30 - 13:45",
           title: "오사카성",
           image: IMAGES.osaka_castle,
-          mapUrl: "https://maps.app.goo.gl/YjC6yS8f6mC7zY9s8"
+          mapUrl: "https://maps.app.goo.gl/BXwE44ghqupS888S8"
         },
         {
           time: "13:45 - 14:00",
           title: "카페 마루후쿠 커피 이동",
           transport: 'taxi',
           expectedCost: "택시비: 약 ₩8,000",
+          mapUrl: "https://maps.app.goo.gl/kmifGQY8rvDXotxu6",
           noImage: true
         },
         {
           time: "14:00 - 15:10",
           title: "마루후쿠 커피 센니치마에 본점",
           image: IMAGES.marufuku_coffee,
-          mapUrl: "https://maps.app.goo.gl/pBr3M4cSHDZUjmQM8"
+          mapUrl: "https://maps.app.goo.gl/kmifGQY8rvDXotxu6"
         },
         {
           time: "15:10 - 15:20",
