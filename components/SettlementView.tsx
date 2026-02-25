@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Expense, MemberId, FAMILY_MEMBERS } from '../types';
-import { Plus, Trash2, TrendingUp, X, ArrowRightLeft, CreditCard, UserCheck, Check } from 'lucide-react';
+import { Plus, Trash2, TrendingUp, X, ArrowRightLeft, CreditCard, UserCheck, Check, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface SettlementViewProps {
   expenses: Expense[];
@@ -10,6 +10,7 @@ interface SettlementViewProps {
 
 const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpenses }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expandedMember, setExpandedMember] = useState<MemberId | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newAmount, setNewAmount] = useState('');
   const [newPayer, setNewPayer] = useState<MemberId>(FAMILY_MEMBERS[0] || '영수');
@@ -155,12 +156,23 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
         <div className="space-y-3">
           {FAMILY_MEMBERS.map(member => {
             const data = settlementData.summary[member];
+            const isExpanded = expandedMember === member;
+            
             return (
-              <div key={member} className="p-5 bg-[#F8F9FD] rounded-[2rem] border border-[#566873]/5">
+              <div 
+                key={member} 
+                onClick={() => setExpandedMember(isExpanded ? null : member)}
+                className={`p-5 bg-[#F8F9FD] rounded-[2rem] border border-[#566873]/5 cursor-pointer transition-all duration-300 ${isExpanded ? 'bg-white shadow-md ring-1 ring-[#1675F2]/10' : 'hover:bg-[#F1F2F0]'}`}
+              >
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center font-black text-[#1675F2] border border-[#566873]/10 text-xs shadow-sm">{member[0]}</div>
-                    <span className="font-black text-[#566873]">{member}</span>
+                    <div className="flex flex-col">
+                      <span className="font-black text-[#566873]">{member}</span>
+                      <span className="text-[8px] text-slate-300 font-bold uppercase tracking-tighter flex items-center gap-1">
+                        {isExpanded ? <ChevronUp size={8}/> : <ChevronDown size={8}/>} DETAILS
+                      </span>
+                    </div>
                   </div>
                   <div className="text-right">
                     {data.netBalance > 0.1 ? (
@@ -176,6 +188,56 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
                   <div className="flex items-center gap-1"><CreditCard size={10}/> 결제: ₩{Math.round(data.paidTotal).toLocaleString()}</div>
                   <div className="flex items-center gap-1 text-[#1675F2]"><UserCheck size={10}/> 소비: ₩{Math.round(data.consumptionTotal).toLocaleString()}</div>
                 </div>
+
+                {/* 상세 내역 확장 영역 */}
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-[#566873]/5 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                    {/* 결제 내역 */}
+                    <div>
+                      <h4 className="text-[9px] font-black text-[#1675F2] uppercase tracking-widest mb-2 flex items-center gap-1 opacity-70">
+                        <CreditCard size={10}/> 내가 결제한 내역 (돌려받을 돈)
+                      </h4>
+                      <div className="space-y-1">
+                        {safeExpenses.filter(e => e.payerId === member).map(e => (
+                          <div key={e.id} className="flex justify-between items-center text-[10px] font-bold text-[#566873] bg-white p-2.5 rounded-xl shadow-sm border border-slate-50">
+                            <span className="truncate max-w-[150px]">{e.title}</span>
+                            <span className="text-[#1675F2]">₩{Math.round(e.amount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                        {safeExpenses.filter(e => e.payerId === member).length === 0 && (
+                          <p className="text-[9px] text-slate-300 italic px-2">결제 내역이 없습니다.</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* 소비 내역 */}
+                    <div>
+                      <h4 className="text-[9px] font-black text-[#E11D48] uppercase tracking-widest mb-2 flex items-center gap-1 opacity-70">
+                        <UserCheck size={10}/> 내가 참여한 내역 (내 몫)
+                      </h4>
+                      <div className="space-y-1">
+                        {safeExpenses.filter(e => e.participantIds.includes(member)).map(e => {
+                          const share = e.amount / e.participantIds.length;
+                          const isSettled = (e.settledMemberIds || []).includes(member) || e.payerId === member;
+                          return (
+                            <div key={e.id} className="flex justify-between items-center text-[10px] font-bold text-[#566873] bg-white p-2.5 rounded-xl shadow-sm border border-slate-50">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate max-w-[120px]">{e.title}</span>
+                                {isSettled && <span className="text-[7px] bg-blue-50 text-[#1675F2] px-1.5 py-0.5 rounded-full font-black border border-[#1675F2]/10">정산완료</span>}
+                              </div>
+                              <span className={isSettled ? "text-slate-300 line-through" : "text-[#E11D48]"}>
+                                ₩{Math.round(share).toLocaleString()}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {safeExpenses.filter(e => e.participantIds.includes(member)).length === 0 && (
+                          <p className="text-[9px] text-slate-300 italic px-2">참여한 내역이 없습니다.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
