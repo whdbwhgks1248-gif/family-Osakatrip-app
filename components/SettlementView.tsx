@@ -36,9 +36,11 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
 
       const share = amount / validParticipants.length;
       
-      // 결제액 기록
+      // 결제액 기록 및 기초 잔액 반영
       if (summary[exp.payerId]) {
         summary[exp.payerId].paidTotal += amount;
+        // 결제자는 일단 지출한 전체 금액을 돌려받을 권리가 있음
+        summary[exp.payerId].netBalance += amount;
       }
 
       validParticipants.forEach(pId => {
@@ -47,18 +49,17 @@ const SettlementView: React.FC<SettlementViewProps> = ({ expenses = [], setExpen
         // 내 소비액 누적 (정산 여부와 무관한 실제 쓴 돈)
         summary[pId].consumptionTotal += share;
         
-        // 잔액(netBalance) 계산: '아직 정산 안 된 사람들'만 계산에 포함
+        // 모든 참여자는 자신의 몫만큼 잔액에서 차감 (빚 발생)
+        summary[pId].netBalance -= share;
+        
+        // 만약 이미 입금(정산) 완료했다면, 그만큼은 잔액 계산에서 상쇄 (이미 주고받은 돈)
         const isSettled = (exp.settledMemberIds || []).includes(pId);
         const isPayer = pId === exp.payerId;
 
-        if (isPayer) {
-          // 결제자는 (자기 자신을 제외한 참여자 중 아직 입금 안 한 사람들)의 몫만큼 받을 돈이 있음
-          const unsettledOthers = validParticipants.filter(p => p !== exp.payerId && !(exp.settledMemberIds || []).includes(p));
-          summary[pId].netBalance += (unsettledOthers.length * share);
-        } else {
-          // 참여자는 아직 입금을 안 했을 때만 '보낼 돈(-)'으로 기록됨
-          if (!isSettled) {
-            summary[pId].netBalance -= share;
+        if (isSettled && !isPayer) {
+          summary[pId].netBalance += share; // 이미 냈으므로 빚 아님
+          if (summary[exp.payerId]) {
+            summary[exp.payerId].netBalance -= share; // 결제자가 이미 받았으므로 받을 돈 아님
           }
         }
       });
